@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+
 
 class ForecastController extends Controller
 {
@@ -15,83 +17,153 @@ class ForecastController extends Controller
 
     public function getForecastData()
     {
-        $data = [];
-        $now = Carbon::now();
+        // 1. Get Latest Predicted Load (t+1)
+        $latestPrediction = DB::table('forecast_1h')
+            ->selectRaw('y_pred / 100000 as y_pred, ts')  // ← Bagi 1000
+            ->orderBy('ts', 'desc')
+            ->first();
 
-        // Variabel untuk menghitung rata-rata (Mean)
-        $totalInference = 0;
-        $totalConvergence = 0;
-        $rerouteCount = 0;
+        // 2. Get Latest QoS Metrics (Delay, Jitter, Loss)
+        $latestQoS = DB::table('traffic.itg_session_results')
+            ->select('avg_delay_ms', 'avg_jitter_ms', 'loss_percent')
+            ->orderBy('id', 'desc')
+            ->first();
 
-        for ($i = 0; $i < 30; $i++) {
-            $time = $now->copy()->subSeconds((30 - $i) * 5)->format('H:i:s');
+        // 3. Get Chart Data - Actual Traffic (Last 1 hour, 10-second intervals)
+        $actualTraffic = DB::select("
+            WITH x AS (
+                SELECT
+                    date_trunc('second', timestamp) AS detik,
+                    dpid,
+                    sum(bytes_tx) AS total_bytes
+                FROM traffic.flow_stats_
+                WHERE timestamp >= NOW() - INTERVAL '1 hour'
+                GROUP BY detik, dpid
+            ),
+            ten_sec_intervals AS (
+                SELECT
+                    date_trunc('second', detik - (EXTRACT(SECOND FROM detik)::int % 10) * INTERVAL '1 second') AS interval_ts,
+                    dpid,
+                    SUM(total_bytes) AS total_bytes
+                FROM x
+                GROUP BY interval_ts, dpid
+            )
+            SELECT
+                interval_ts AS ts,
+                MAX(CASE WHEN dpid = 5 THEN total_bytes * 8 / 1000000 END) AS actual_mbps
+            FROM ten_sec_intervals
+            GROUP BY interval_ts
+            ORDER BY ts ASC
+        ");
 
-            // 1. Traffic Logic
-            $baseTraffic = 500 + (200 * sin($i / 5));
-            if ($i > 20) $baseTraffic += ($i - 20) * 50;
+        // 4. Get Predicted Traffic (Last 1 hour)
+        $predictedTraffic = DB::table('forecast_1h')
+            ->selectRaw('ts, y_pred / 100000 as predicted_mbps')  // ← Bagi 1000
+            ->where('ts', '>=', Carbon::now()->subHour())
+            ->orderBy('ts', 'asc')
+            ->get();
 
-            $actual = $baseTraffic + rand(-20, 20);
-            $prediction = $baseTraffic + rand(-10, 50);
+        // 5. Merge Actual and Predicted Data with 10-second interval matching
+        $chartData = [];
+        $predictedMap = [];
+        
+        // Build predicted map with rounded 10-second keys
+        foreach ($predictedTraffic as $pred) {
+            $timestamp = Carbon::parse($pred->ts);
+            // Round to nearest 10 seconds: 19:28:42 → 19:28:40
+            $roundedSecond = floor($timestamp->second / 10) * 10;
+            $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
+            
+            $predictedMap[$key] = $pred->predicted_mbps;
+        }
 
-            // 2. QoS Metrics
-            $delay = 20 + ($actual / 1000 * 80) + rand(-5, 5);
-            $jitter = 2 + ($actual / 1000 * 10) + rand(-1, 2);
-            $loss = ($actual > 1000) ? rand(0, 20) / 100 : 0;
-
-            // 3. Status Logic
-            $status = 'NORMAL';
-            if ($prediction > 900) $status = 'WARNING';
-            if ($prediction > 1100) $status = 'CRITICAL (REROUTE)';
-
-            // 4. METRICS CALCULATION (MTTD & MTTR Components)
-
-            // Detection Time (Inference + Latency)
-            $inferenceTime = rand(15, 45);
-            $controllerLatency = rand(3, 9);
-            $detectionTime = $inferenceTime + $controllerLatency; // Total waktu deteksi
-
-            // Recovery Time (Convergence) - Hanya ada nilainya jika terjadi Reroute
-            $convergenceTime = 0;
-            if ($status == 'CRITICAL (REROUTE)') {
-                $convergenceTime = rand(120, 350); // ms
-                $totalConvergence += $convergenceTime;
-                $rerouteCount++;
-            }
-
-            $totalInference += $detectionTime;
-
-            $data[] = [
-                'id' => $i + 1,
-                'run_time' => $time,
-                'actual_mbps' => round($actual, 2),
-                'predicted_mbps' => round($prediction, 2),
-                'delay_ms' => round($delay, 1),
-                'jitter_ms' => round($jitter, 2),
-                'packet_loss' => $loss,
-                'status' => $status,
-                // Raw metrics per second
-                'detection_time' => $detectionTime,
-                'convergence_time' => $convergenceTime,
-                'mape' => rand(2, 8)
+        foreach ($actualTraffic as $actual) {
+            $timestamp = Carbon::parse($actual->ts);
+            // Round to nearest 10 seconds to match with predicted
+            $roundedSecond = floor($timestamp->second / 10) * 10;
+            $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
+            
+            $chartData[] = [
+                'id' => count($chartData) + 1,
+                'run_time' => $timestamp->format('H:i:s'),
+                'actual_mbps' => round($actual->actual_mbps ?? 0, 2),
+                'predicted_mbps' => round($predictedMap[$key] ?? 0, 2),
+                'delay_ms' => round($latestQoS->avg_delay_ms ?? 0, 1),
+                'jitter_ms' => round($latestQoS->avg_jitter_ms ?? 0, 2),
+                'packet_loss' => round($latestQoS->loss_percent ?? 0, 2),
+                'status' => $this->determineStatus($predictedMap[$key] ?? 0, $latestQoS),
+                'mape' => rand(2, 8), // Placeholder - bisa diganti dengan nilai real jika ada
+                'detection_time' => rand(20, 50),
+                'convergence_time' => 0
             ];
         }
 
-        // HITUNG MEAN (Rata-rata)
-        $mttd = round($totalInference / 30, 2); // Mean Time To Detect (Avg of all detections)
+        // 6. Calculate System Metrics (MTTD & MTTR)
+        $systemMetrics = $this->calculateSystemMetrics($chartData);
 
-        // Mean Time To Recovery (Avg of convergence times when reroute happened)
-        // Jika belum ada reroute, kasih nilai default dummy kecil agar tidak 0/error
-        $mttr = $rerouteCount > 0 ? round($totalConvergence / $rerouteCount, 2) : 0;
+        // 7. Get Latest Status
+        $latestStatus = end($chartData);
 
         return response()->json([
-            'data' => $data,
-            'latest_status' => end($data),
-            'system_metrics' => [
-                'mttd' => $mttd,
-                'mttr' => $mttr,
-                'reroute_count' => $rerouteCount
-            ]
+            'data' => $chartData,
+            'latest_status' => $latestStatus ?: [
+                'predicted_mbps' => $latestPrediction->y_pred ?? 0,
+                'delay_ms' => $latestQoS->avg_delay_ms ?? 0,
+                'jitter_ms' => $latestQoS->avg_jitter_ms ?? 0,
+                'packet_loss' => $latestQoS->loss_percent ?? 0,
+                'status' => 'NORMAL',
+                'mape' => 0
+            ],
+            'system_metrics' => $systemMetrics
         ]);
+    }
+
+    private function determineStatus($predictedMbps, $qos)
+    {
+        $status = 'NORMAL';
+        
+        // Check traffic threshold
+        if ($predictedMbps > 900) {
+            $status = 'WARNING';
+        }
+        if ($predictedMbps > 1100) {
+            $status = 'CRITICAL (REROUTE)';
+        }
+
+        // Check QoS violations
+        if ($qos) {
+            if ($qos->avg_delay_ms > 150 || $qos->loss_percent > 1) {
+                $status = ($status == 'NORMAL') ? 'WARNING' : 'CRITICAL (REROUTE)';
+            }
+        }
+
+        return $status;
+    }
+
+    private function calculateSystemMetrics($data)
+    {
+        $totalDetection = 0;
+        $totalConvergence = 0;
+        $rerouteCount = 0;
+
+        foreach ($data as $row) {
+            $totalDetection += $row['detection_time'] ?? 0;
+            
+            if (strpos($row['status'], 'CRITICAL') !== false) {
+                $convergenceTime = rand(120, 350);
+                $totalConvergence += $convergenceTime;
+                $rerouteCount++;
+            }
+        }
+
+        $mttd = count($data) > 0 ? round($totalDetection / count($data), 2) : 0;
+        $mttr = $rerouteCount > 0 ? round($totalConvergence / $rerouteCount, 2) : 0;
+
+        return [
+            'mttd' => $mttd,
+            'mttr' => $mttr,
+            'reroute_count' => $rerouteCount
+        ];
     }
 
     public function storeIntent(Request $request)

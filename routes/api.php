@@ -17,8 +17,6 @@ Route::get('/kpi/stats-by-category', [FlowStatsController::class, 'getStatsByCat
 
 // [MODIFIKASI] Endpoint filter tetap, tapi ganti controller
 Route::get('/filter-options', [FlowStatsController::class, 'getFilterOptions']);
+
+
 Route::get('/forecast/data', [ForecastController::class, 'getForecastData']);
-
-
-
-

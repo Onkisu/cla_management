@@ -31,21 +31,24 @@ export default function ForecastDashboard() {
     const [data, setData] = useState<TrafficData[]>([]);
     const [latest, setLatest] = useState<TrafficData | null>(null);
     const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
+    const [loading, setLoading] = useState(true);
 
     const fetchData = async () => {
         try {
-            const res = await axios.get('/forecast/data');
-            setData(res.data.data);
-            setLatest(res.data.latest_status);
-            setMetrics(res.data.system_metrics);
+            const res = await axios.get('/api/forecast/data');
+            setData(res.data.data || []);
+            setLatest(res.data.latest_status || null);
+            setMetrics(res.data.system_metrics || null);
+            setLoading(false);
         } catch (error) {
-            console.error("Error fetching dummy data", error);
+            console.error("Error fetching forecast data", error);
+            setLoading(false);
         }
     };
 
     useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 5000);
+        const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
         return () => clearInterval(interval);
     }, []);
 
@@ -53,6 +56,11 @@ export default function ForecastDashboard() {
         if (status?.includes('CRITICAL')) return 'text-red-600 bg-red-100 border-red-200';
         if (status?.includes('WARNING')) return 'text-yellow-600 bg-yellow-100 border-yellow-200';
         return 'text-green-600 bg-green-100 border-green-200';
+    };
+
+    // Format number with proper decimals
+    const formatNumber = (num: number | undefined, decimals: number = 2) => {
+        return num !== undefined && num !== null ? Number(num).toFixed(decimals) : '0';
     };
 
     return (
@@ -79,12 +87,44 @@ export default function ForecastDashboard() {
                     )}
                 </div>
 
+                {/* Loading State */}
+                {loading && (
+                    <div className="text-center py-8">
+                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+                        <p className="mt-2 text-gray-600">Loading real-time data...</p>
+                    </div>
+                )}
+
                 {/* --- NETWORK QoS CARDS --- */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <KpiCard title="Predicted Load (t+1)" value={`${latest?.predicted_mbps || 0} Mbps`} sub="Traffic Forecast" icon="📈" status="neutral" />
-                    <KpiCard title="One-Way Delay" value={`${latest?.delay_ms || 0} ms`} sub="ITU-T G.114 Limit: <150 ms" icon="⏱️" status={(latest?.delay_ms || 0) > 150 ? 'danger' : 'safe'} />
-                    <KpiCard title="Jitter" value={`${latest?.jitter_ms || 0} ms`} sub="ITU-T Limit: <30 ms" icon="〰️" status={(latest?.jitter_ms || 0) > 30 ? 'danger' : 'safe'} />
-                    <KpiCard title="Packet Loss" value={`${latest?.packet_loss || 0} %`} sub="Threshold: <1%" icon="📉" status={(latest?.packet_loss || 0) > 1 ? 'danger' : 'safe'} />
+                    <KpiCard 
+                        title="Predicted Load (t+1)" 
+                        value={`${formatNumber(latest?.predicted_mbps, 1)} Mbps`} 
+                        sub="Traffic Forecast" 
+                        icon="📈" 
+                        status="neutral" 
+                    />
+                    <KpiCard 
+                        title="One-Way Delay" 
+                        value={`${formatNumber(latest?.delay_ms, 1)} ms`} 
+                        sub="ITU-T G.114 Limit: <150 ms" 
+                        icon="⏱️" 
+                        status={(latest?.delay_ms || 0) > 150 ? 'danger' : 'safe'} 
+                    />
+                    <KpiCard 
+                        title="Jitter" 
+                        value={`${formatNumber(latest?.jitter_ms, 2)} ms`} 
+                        sub="ITU-T Limit: <30 ms" 
+                        icon="〰️" 
+                        status={(latest?.jitter_ms || 0) > 30 ? 'danger' : 'safe'} 
+                    />
+                    <KpiCard 
+                        title="Packet Loss" 
+                        value={`${formatNumber(latest?.packet_loss, 2)} %`} 
+                        sub="Threshold: <1%" 
+                        icon="📉" 
+                        status={(latest?.packet_loss || 0) > 1 ? 'danger' : 'safe'} 
+                    />
                 </div>
 
                 {/* --- MAIN CONTENT GRID --- */}
@@ -100,22 +140,55 @@ export default function ForecastDashboard() {
                             </div>
                         </div>
                         <div className="flex-1 w-full min-h-0">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <AreaChart data={data}>
-                                    <defs>
-                                        <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                        </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                    <XAxis dataKey="run_time" stroke="#9ca3af" fontSize={11} tick={{dy: 10}} />
-                                    <YAxis stroke="#9ca3af" fontSize={11} />
-                                    <Tooltip contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px' }} />
-                                    <Area type="monotone" dataKey="actual_mbps" stroke="#3b82f6" fill="url(#colorActual)" strokeWidth={2} name="Actual" />
-                                    <Line type="monotone" dataKey="predicted_mbps" stroke="#f97316" strokeDasharray="5 5" strokeWidth={2} dot={false} name="Forecast" />
-                                </AreaChart>
-                            </ResponsiveContainer>
+                            {data.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={data}>
+                                        <defs>
+                                            <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
+                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                                        <XAxis 
+                                            dataKey="run_time" 
+                                            stroke="#9ca3af" 
+                                            fontSize={11} 
+                                            tick={{dy: 10}}
+                                            interval="preserveStartEnd"
+                                        />
+                                        <YAxis 
+                                            stroke="#9ca3af" 
+                                            fontSize={11}
+                                            label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
+                                        />
+                                        <Tooltip 
+                                            contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
+                                            formatter={(value: any) => [`${Number(value).toFixed(2)} Mbps`, '']}
+                                        />
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="actual_mbps" 
+                                            stroke="#3b82f6" 
+                                            fill="url(#colorActual)" 
+                                            strokeWidth={2} 
+                                            name="Actual" 
+                                        />
+                                        <Line 
+                                            type="monotone" 
+                                            dataKey="predicted_mbps" 
+                                            stroke="#f97316"  
+                                            strokeWidth={2} 
+                                            dot={false} 
+                                            name="Forecast" 
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                            ) : (
+                                <div className="flex items-center justify-center h-full text-gray-400">
+                                    No data available
+                                </div>
+                            )}
                         </div>
                     </div>
 
@@ -126,22 +199,26 @@ export default function ForecastDashboard() {
                         <div className="flex-1 bg-white dark:bg-neutral-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 flex flex-col min-h-0 overflow-hidden">
                             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-3 border-b pb-2">📋 Automation Logs</h3>
                             <div className="overflow-y-auto flex-1 custom-scrollbar pr-2">
-                                <table className="w-full text-xs text-left text-gray-500">
-                                    <tbody className="divide-y divide-gray-100">
-                                        {data.slice().reverse().map((row) => (
-                                            <tr key={row.id}>
-                                                <td className="py-2 font-mono text-[10px]">{row.run_time}</td>
-                                                <td className="py-2">
-                                                    {row.predicted_mbps > 1100 ?
-                                                        <span className="text-red-600 font-bold flex items-center gap-1">⚡ REROUTE</span> :
-                                                        <span className="text-blue-600 flex items-center gap-1">👁️ MONITOR</span>
-                                                    }
-                                                </td>
-                                                <td className="py-2 text-right">{Math.round(row.predicted_mbps)} Mbps</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                                {data.length > 0 ? (
+                                    <table className="w-full text-xs text-left text-gray-500">
+                                        <tbody className="divide-y divide-gray-100">
+                                            {data.slice().reverse().map((row) => (
+                                                <tr key={row.id}>
+                                                    <td className="py-2 font-mono text-[10px]">{row.run_time}</td>
+                                                    <td className="py-2">
+                                                        {row.predicted_mbps > 1100 ?
+                                                            <span className="text-red-600 font-bold flex items-center gap-1">⚡ REROUTE</span> :
+                                                            <span className="text-blue-600 flex items-center gap-1">👁️ MONITOR</span>
+                                                        }
+                                                    </td>
+                                                    <td className="py-2 text-right">{formatNumber(row.predicted_mbps, 0)} Mbps</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                ) : (
+                                    <div className="text-center text-gray-400 py-4">No logs available</div>
+                                )}
                             </div>
                         </div>
 
@@ -160,7 +237,7 @@ export default function ForecastDashboard() {
                                     <div>
                                         <div className="text-xs text-slate-400 mb-1">MTTD (Mean Time to Detect)</div>
                                         <div className="text-lg font-mono font-bold text-green-400">
-                                            {metrics?.mttd || '-'} <span className="text-xs text-slate-500">ms</span>
+                                            {formatNumber(metrics?.mttd, 0)} <span className="text-xs text-slate-500">ms</span>
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -169,7 +246,10 @@ export default function ForecastDashboard() {
                                     </div>
                                 </div>
                                 <div className="w-full bg-slate-700 rounded-full h-1">
-                                    <div className="bg-green-500 h-1 rounded-full transition-all duration-500" style={{ width: `${(metrics?.mttd || 0) / 2}%` }}></div>
+                                    <div 
+                                        className="bg-green-500 h-1 rounded-full transition-all duration-500" 
+                                        style={{ width: `${Math.min((metrics?.mttd || 0) / 2, 100)}%` }}
+                                    ></div>
                                 </div>
 
                                 {/* Metric: MTTR */}
@@ -177,8 +257,13 @@ export default function ForecastDashboard() {
                                     <div>
                                         <div className="text-xs text-slate-400 mb-1">MTTR (Mean Time to Recover)</div>
                                         <div className="text-lg font-mono font-bold text-orange-400">
-                                            {metrics?.mttr ? metrics.mttr : <span className="text-gray-600 text-sm">No Incidents</span>}
-                                            {metrics?.mttr ? <span className="text-xs text-slate-500"> ms</span> : ''}
+                                            {metrics?.mttr && metrics.mttr > 0 ? (
+                                                <>
+                                                    {formatNumber(metrics.mttr, 0)} <span className="text-xs text-slate-500">ms</span>
+                                                </>
+                                            ) : (
+                                                <span className="text-gray-600 text-sm">No Incidents</span>
+                                            )}
                                         </div>
                                     </div>
                                     <div className="text-right">
@@ -187,14 +272,17 @@ export default function ForecastDashboard() {
                                     </div>
                                 </div>
                                 <div className="w-full bg-slate-700 rounded-full h-1">
-                                    <div className="bg-orange-500 h-1 rounded-full transition-all duration-500" style={{ width: `${(metrics?.mttr || 0) / 10}%` }}></div>
+                                    <div 
+                                        className="bg-orange-500 h-1 rounded-full transition-all duration-500" 
+                                        style={{ width: `${Math.min((metrics?.mttr || 0) / 100, 100)}%` }}
+                                    ></div>
                                 </div>
 
                                 {/* Accuracy Badge */}
                                 <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                                    <span className="text-xs text-slate-400">Model Accuracy (RMSE)</span>
+                                    <span className="text-xs text-slate-400">Model Accuracy (MAPE)</span>
                                     <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
-                                        {latest?.mape}%
+                                        {formatNumber(latest?.mape, 1)}%
                                     </span>
                                 </div>
                             </div>
