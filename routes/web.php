@@ -3,6 +3,8 @@
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Laravel\Fortify\Features;
+use App\Http\Controllers\ForecastController;
+
 
 Route::get('/', function () {
     return Inertia::render('welcome', [
@@ -15,5 +17,27 @@ Route::middleware(['auth', 'verified'])->group(function () {
         return Inertia::render('dashboard');
     })->name('dashboard');
 });
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('forecast', function () {
+        return Inertia::render('forecast');
+    })->name('forecast');
+});
+
+Route::get('/flowstats', function () {
+    $data = DB::table('traffic.flow_stats')
+        ->select('timestamp', 'bytes_tx')
+        ->orderBy('timestamp')
+        ->limit(50)
+        ->get();
+
+    return response()->json($data);
+});
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::post('api/forecast/generate-intent', [ForecastController::class, 'storeIntent'])->name('forecast.storeIntent');
+});
+
+
 
 require __DIR__.'/settings.php';
