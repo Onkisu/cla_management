@@ -37,6 +37,7 @@ export function UserMenuContent({ user }: UserMenuContentProps) {
                     <Link
                         className="block w-full"
                         href={edit()}
+                        // href="/profile"
                         as="button"
                         prefetch
                         onClick={cleanup}

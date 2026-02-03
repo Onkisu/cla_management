@@ -3,7 +3,7 @@ import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line,ReferenceLine
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line
 } from 'recharts';
 
 // --- TIPE DATA ---
@@ -21,12 +21,6 @@ type TrafficData = {
     convergence_time: number;
 };
 
-type SystemMetrics = {
-    mttd: number;
-    mttr: number;
-    reroute_count: number;
-};
-
 type SystemEvent = {
     id: number;
     timestamp: string;
@@ -35,97 +29,10 @@ type SystemEvent = {
     trigger_value: number;
 };
 
-type ModelMetrics = {
-    mape: number;
-    rmse: number;
-};
-
-
-// Tambahin di luar component ForecastDashboard, sebelum export default
-const ThresholdAnnotation = (props: any) => {
-    const { viewBox } = props;
-    if (!viewBox) return null;
-    
-    // Fixed position di kanan atas chart area
-    const labelX = viewBox.x + viewBox.width - 150;
-    const labelY = viewBox.y + 30;
-    const arrowStartX = labelX + 10;
-    const arrowStartY = labelY + 30;
-    const arrowEndY = viewBox.y + viewBox.height * 0.73; // nunjuk ke threshold line (sekitar 0.2 di Y axis)
-    
-    return (
-        <g>
-            {/* Background Box with shadow */}
-            <defs>
-                <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
-                    <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.2"/>
-                </filter>
-            </defs>
-            
-            <rect
-                x={labelX}
-                y={labelY}
-                width="95"
-                height="30"
-                fill="#10b981"
-                rx="6"
-                filter="url(#shadow)"
-            />
-            
-            {/* Icon */}
-            <text
-                x={labelX + 8}
-                y={labelY + 20}
-                fontSize="14"
-            >
-                ⚡
-            </text>
-            
-            {/* Text */}
-            <text
-                x={labelX + 25}
-                y={labelY + 12}
-                fill="#ffffff"
-                fontSize="9"
-                fontWeight="600"
-            >
-                Threshold
-            </text>
-            <text
-                x={labelX + 25}
-                y={labelY + 23}
-                fill="#ffffff"
-                fontSize="10"
-                fontWeight="700"
-            >
-                0.081 Mbps
-            </text>
-            
-            {/* Vertical Arrow */}
-            <defs>
-                <marker
-                    id="arrowhead-down"
-                    markerWidth="8"
-                    markerHeight="8"
-                    refX="4"
-                    refY="7"
-                    orient="auto"
-                >
-                    <polygon points="0 0, 8 0, 4 8" fill="#10b981" />
-                </marker>
-            </defs>
-            
-            <line
-                x1={arrowStartX}
-                y1={arrowStartY}
-                x2={arrowStartX}
-                y2={arrowEndY}
-                stroke="#10b981"
-                strokeWidth="2.5"
-                markerEnd="url(#arrowhead-down)"
-            />
-        </g>
-    );
+type SystemMetrics = {
+    mttd: number;
+    mttr: number;
+    reroute_count: number;
 };
 
 export default function ForecastDashboard() {
@@ -134,7 +41,6 @@ export default function ForecastDashboard() {
     const [latest, setLatest] = useState<TrafficData | null>(null);
     const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
     const [loading, setLoading] = useState(true);
-    const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
 
     const fetchData = async () => {
         try {
@@ -143,7 +49,6 @@ export default function ForecastDashboard() {
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
             setMetrics(res.data.system_metrics || null);
-            setModelMetrics(res.data.model_metrics || null);
             setLoading(false);
         } catch (error) {
             console.error("Error fetching forecast data", error);
@@ -168,18 +73,13 @@ export default function ForecastDashboard() {
         return num !== undefined && num !== null ? Number(num).toFixed(decimals) : '0';
     };
 
+    // Format timestamp to time only
     const formatTime = (timestamp: string) => {
         const date = new Date(timestamp);
-        return date.toLocaleTimeString('id-ID', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
-            second: '2-digit',
-            hour12: false
-        });
+        return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     };
 
-
-      // Get event icon and color based on type
+    // Get event icon and color based on type
     const getEventStyle = (eventType: string) => {
         if (eventType === 'REROUTE') {
             return { icon: '⚡', color: 'text-red-600', bg: 'bg-red-50' };
@@ -225,7 +125,7 @@ export default function ForecastDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <KpiCard 
                         title="Predicted Load (t+1)" 
-                        value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`} 
+                        value={`${formatNumber(latest?.predicted_mbps, 1)} Mbps`} 
                         sub="Traffic Forecast" 
                         icon="📈" 
                         status="neutral" 
@@ -308,14 +208,6 @@ export default function ForecastDashboard() {
                                             dot={false} 
                                             name="Forecast" 
                                         />
-                                        {/* Threshold Line */}
-                       <ReferenceLine 
-            y={0.2} 
-            stroke="#10b981" 
-            strokeDasharray="8 4" 
-            strokeWidth={2}
-            label={<ThresholdAnnotation />}
-        />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -329,11 +221,11 @@ export default function ForecastDashboard() {
                     {/* --- RIGHT: LOGS & SYSTEM RELIABILITY (1/3) --- */}
                     <div className="flex flex-col gap-6 h-[500px]">
 
-                        {/* 1. Automation Logs */}
+                        {/* 1. Automation Logs - UPDATED VERSION */}
                         <div className="flex-1 bg-white dark:bg-neutral-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 flex flex-col min-h-0 overflow-hidden">
                             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-3 border-b pb-2">📋 Automation Logs</h3>
                             <div className="overflow-y-auto flex-1 custom-scrollbar pr-2">
-                              {systemEvents.length > 0 ? (
+                                {systemEvents.length > 0 ? (
                                     <div className="space-y-2">
                                         {systemEvents.map((event) => {
                                             const style = getEventStyle(event.event_type);
@@ -359,7 +251,7 @@ export default function ForecastDashboard() {
                                                                 {formatTime(event.timestamp)}
                                                             </div>
                                                             <div className="text-[10px] font-bold text-gray-700 dark:text-gray-200 mt-0.5">
-                                                                {formatNumber(event.trigger_value / 1000000, 3)} Mbps
+                                                                {formatNumber(event.trigger_value / 100000, 1)} Mbps
                                                             </div>
                                                         </div>
                                                     </div>
@@ -373,7 +265,7 @@ export default function ForecastDashboard() {
                             </div>
                         </div>
 
-                        {/* 2. SYSTEM RELIABILITY METRICS (TTR) */}
+                        {/* 2. SYSTEM RELIABILITY METRICS (MTTD & MTTR) */}
                         <div className="bg-slate-900 text-white p-5 rounded-xl shadow-lg border border-slate-700 relative overflow-hidden">
                             {/* Background deco */}
                             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
@@ -382,12 +274,31 @@ export default function ForecastDashboard() {
                                 🛡️ System Reliability
                             </h3>
 
-                            <div className="space-y-5 relative z-10">                     
-                              
-
+                            <div className="space-y-5 relative z-10">
+                                {/* Metric: MTTD */}
                                 <div className="flex items-center justify-between">
                                     <div>
-                                        <div className="text-xs text-slate-400 mb-1">Time to Reroute</div>
+                                        <div className="text-xs text-slate-400 mb-1">MTTD (Mean Time to Detect)</div>
+                                        <div className="text-lg font-mono font-bold text-green-400">
+                                            {formatNumber(metrics?.mttd, 0)} <span className="text-xs text-slate-500">ms</span>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <div className="text-[10px] text-slate-500">Target</div>
+                                        <div className="text-xs text-slate-300">≤ 200 ms</div>
+                                    </div>
+                                </div>
+                                <div className="w-full bg-slate-700 rounded-full h-1">
+                                    <div 
+                                        className="bg-green-500 h-1 rounded-full transition-all duration-500" 
+                                        style={{ width: `${Math.min((metrics?.mttd || 0) / 2, 100)}%` }}
+                                    ></div>
+                                </div>
+
+                                {/* Metric: MTTR */}
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <div className="text-xs text-slate-400 mb-1">MTTR (Mean Time to Recover)</div>
                                         <div className="text-lg font-mono font-bold text-orange-400">
                                             {metrics?.mttr && metrics.mttr > 0 ? (
                                                 <>
@@ -406,34 +317,29 @@ export default function ForecastDashboard() {
                                 <div className="w-full bg-slate-700 rounded-full h-1">
                                     <div 
                                         className="bg-orange-500 h-1 rounded-full transition-all duration-500" 
-                                        style={{ width: `${Math.min((metrics?.mttr || 0) / 10000 * 100, 100)}%` }}
+                                        style={{ width: `${Math.min((metrics?.mttr || 0) / 100, 100)}%` }}
                                     ></div>
                                 </div>
 
                                 {/* Accuracy Badge */}
                                 <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                                    <span className="text-xs text-slate-400">MAPE</span>
+                                    <span className="text-xs text-slate-400">Model Accuracy (MAPE)</span>
                                     <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
-                                        {formatNumber(modelMetrics?.mape, 1)}%
+                                        {formatNumber(latest?.mape, 1)}%
                                     </span>
                                 </div>
-
-                    
-                                <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                                    <span className="text-xs text-slate-400">RMSE</span>
-                                    <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
-                                        {formatNumber(modelMetrics?.rmse, 2)} Mbps
-                                    </span>
-                                </div>
-
-
                             </div>
                         </div>
 
                     </div>
                 </div>
 
-              
+                {/* --- CONTROL --- */}
+                <div className="bg-white dark:bg-neutral-800 p-4 rounded-xl shadow-sm border border-gray-100 flex gap-4 overflow-x-auto">
+                     <button className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded text-xs font-bold whitespace-nowrap">⚡ Inject Burst</button>
+                     <button className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-4 py-2 rounded text-xs font-bold whitespace-nowrap">🛑 Cut Link S1-S2</button>
+                     <button className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-xs font-bold ml-auto whitespace-nowrap">▶ Reset Env</button>
+                </div>
             </div>
         </AppLayout>
     );
