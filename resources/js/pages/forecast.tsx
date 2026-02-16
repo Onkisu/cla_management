@@ -224,7 +224,7 @@ export default function ForecastDashboard() {
                 {/* --- NETWORK QoS CARDS --- */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <KpiCard 
-                        title="Predicted Load (t+10s)" 
+                        title="Predicted Load (t+10)" 
                         value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`} 
                         sub="Traffic Forecast" 
                         icon="📈" 
