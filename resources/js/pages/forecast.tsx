@@ -98,7 +98,7 @@ const ThresholdAnnotation = (props: any) => {
                 fontSize="10"
                 fontWeight="700"
             >
-                0.081 Mbps
+                40 Mbps
             </text>
             
             {/* Vertical Arrow */}
@@ -224,7 +224,7 @@ export default function ForecastDashboard() {
                 {/* --- NETWORK QoS CARDS --- */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <KpiCard 
-                        title="Predicted Load (t+1)" 
+                        title="Predicted Load (t+10)" 
                         value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`} 
                         sub="Traffic Forecast" 
                         icon="📈" 
@@ -310,7 +310,7 @@ export default function ForecastDashboard() {
                                         />
                                         {/* Threshold Line */}
                        <ReferenceLine 
-            y={0.2} 
+            y={40} 
             stroke="#10b981" 
             strokeDasharray="8 4" 
             strokeWidth={2}
