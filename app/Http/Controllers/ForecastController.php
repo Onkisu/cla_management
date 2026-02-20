@@ -10,14 +10,13 @@ use Carbon\Carbon;
 
 class ForecastController extends Controller
 {
+    // Resolusi bucket dalam detik — harus sama antara actual & predicted
+    // Sesuaikan dengan LOOP_INTERVAL_SEC di forecast_2.py (saat ini 5 detik)
+    const BUCKET_SEC = 5;
+
     public function index()
     {
         return Inertia::render('forecast');
-    }
-
-    private function toWIB($timestamp)
-    {
-        return Carbon::parse($timestamp)->setTimezone('Asia/Jakarta');
     }
 
     private function resolveTimeRange(string $range): Carbon
@@ -32,12 +31,22 @@ class ForecastController extends Controller
         };
     }
 
+    /**
+     * Buat bucket key dengan resolusi BUCKET_SEC detik.
+     * Contoh BUCKET_SEC=5: detik 0,1,2,3,4 → "14:22:00", detik 5,6,7,8,9 → "14:22:05"
+     */
+    private function bucketKey(Carbon $ts): string
+    {
+        $bucket = floor($ts->second / self::BUCKET_SEC) * self::BUCKET_SEC;
+        return $ts->format('Y-m-d H:i:') . str_pad($bucket, 2, '0', STR_PAD_LEFT);
+    }
+
     public function getForecastData(Request $request)
     {
         $range    = $request->query('range', '1h');
         $fromTime = $this->resolveTimeRange($range);
 
-        // 1. Latest Predicted Load — pakai ts_created, satuan konsisten /1000000
+        // 1. Latest Predicted Load
         $latestPrediction = DB::table('forecast_1h')
             ->selectRaw('y_pred / 1000000.0 as y_pred, ts_created as ts')
             ->orderBy('ts_created', 'desc')
@@ -68,7 +77,6 @@ class ForecastController extends Controller
                 return $event;
             });
 
-        // Reroute events — pakai ts_created bukan ts
         $rerouteEvents = DB::select("
             SELECT
                 se.timestamp as event_ts,
@@ -87,27 +95,38 @@ class ForecastController extends Controller
             ORDER BY se.timestamp DESC
         ");
 
-        // 3. Actual Traffic — per detik, filter bytes_tx > 0
+        // 3. Actual Traffic — aggregate ke bucket BUCKET_SEC detik
+        //    SUM bytes dalam satu bucket → total throughput per interval
         $fromTimeStr = $fromTime->toDateTimeString();
+        $bucketSec   = self::BUCKET_SEC;
 
         $actualTraffic = DB::select("
-            WITH x AS (
+            WITH per_second AS (
                 SELECT
-                    date_trunc('second', timestamp) AS detik,
-                    dpid,
-                    MAX(bytes_tx) AS total_bytes
+                    date_trunc('second', timestamp)  AS detik,
+                    MAX(bytes_tx)                    AS total_bytes
                 FROM traffic.flow_stats_
                 WHERE timestamp >= ?
+                  AND dpid = 5
                   AND bytes_tx > 0
-                GROUP BY detik, dpid
+                GROUP BY detik
+            ),
+            bucketed AS (
+                SELECT
+                    date_trunc('second',
+                        detik - ((EXTRACT(SECOND FROM detik)::int % ?) * INTERVAL '1 second')
+                    ) AS bucket_ts,
+                    SUM(total_bytes) AS bucket_bytes
+                FROM per_second
+                GROUP BY bucket_ts
             )
             SELECT
-                detik                        AS ts,
-                total_bytes * 8 / 1000000.0  AS actual_mbps
-            FROM x
-            WHERE dpid = 5
+                bucket_ts                              AS ts,
+                bucket_bytes * 8 / 1000000.0 / ?      AS actual_mbps
+            FROM bucketed
             ORDER BY ts ASC
-        ", [$fromTimeStr]);
+        ", [$fromTimeStr, $bucketSec, $bucketSec]);
+        // ÷ BUCKET_SEC untuk dapat rata-rata Mbps per detik dalam bucket
 
         // 4. Predicted Traffic — pakai ts_created sebagai sumbu waktu
         $predictedTraffic = DB::table('forecast_1h')
@@ -116,47 +135,47 @@ class ForecastController extends Controller
             ->orderBy('ts_created', 'asc')
             ->get();
 
-        // 5. Build predictedMap per detik (key = "Y-m-d H:i:s")
-        //    Simpan nilai tertinggi jika ada duplikat di detik yang sama
-        $predictedMap = [];
+        // 5. Build predictedMap — bucket ke BUCKET_SEC detik, ambil rata-rata per bucket
+        //    (karena forecast_2.py insert tiap 5s, dalam 1 bucket idealnya 1 baris)
+        $predictedBuckets = []; // key => [sum, count]
         foreach ($predictedTraffic as $pred) {
-            $key = Carbon::parse($pred->ts)
-                ->setTimezone('Asia/Jakarta')
-                ->format('Y-m-d H:i:s');
-            if (!isset($predictedMap[$key]) || $pred->predicted_mbps > $predictedMap[$key]) {
-                $predictedMap[$key] = (float) $pred->predicted_mbps;
+            $ts  = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
+            $key = $this->bucketKey($ts);
+            if (!isset($predictedBuckets[$key])) {
+                $predictedBuckets[$key] = ['sum' => 0, 'count' => 0];
             }
+            $predictedBuckets[$key]['sum']   += (float) $pred->predicted_mbps;
+            $predictedBuckets[$key]['count'] += 1;
+        }
+
+        $predictedMap = [];
+        foreach ($predictedBuckets as $key => $val) {
+            $predictedMap[$key] = $val['sum'] / $val['count']; // rata-rata per bucket
         }
 
         // 6. Merge Actual & Predicted
-        $chartData        = [];
-        $lastValidPredMbps = null; // ← FIX: track nilai prediksi terakhir yang valid
+        $chartData         = [];
+        $lastValidPredMbps = null; // forward-fill untuk gap
 
         foreach ($actualTraffic as $actual) {
             $timestamp = Carbon::parse($actual->ts)->setTimezone('Asia/Jakarta');
-            $key       = $timestamp->format('Y-m-d H:i:s');
+            $key       = $this->bucketKey($timestamp);
 
-            // Cari predicted: exact detik dulu, fallback ±2 detik
             $predMbps = $predictedMap[$key] ?? null;
 
+            // Fallback: cari bucket ±1 (±BUCKET_SEC detik)
             if ($predMbps === null) {
-                for ($offset = 1; $offset <= 2; $offset++) {
-                    $kPlus  = $timestamp->copy()->addSeconds($offset)->format('Y-m-d H:i:s');
-                    $kMinus = $timestamp->copy()->subSeconds($offset)->format('Y-m-d H:i:s');
-                    if (isset($predictedMap[$kPlus]))  { $predMbps = $predictedMap[$kPlus];  break; }
-                    if (isset($predictedMap[$kMinus])) { $predMbps = $predictedMap[$kMinus]; break; }
-                }
+                $keyNext = $this->bucketKey($timestamp->copy()->addSeconds(self::BUCKET_SEC));
+                $keyPrev = $this->bucketKey($timestamp->copy()->subSeconds(self::BUCKET_SEC));
+                $predMbps = $predictedMap[$keyNext] ?? $predictedMap[$keyPrev] ?? null;
             }
 
-            // FIX: Kalau masih null setelah ±2 detik fallback,
-            // pakai nilai prediksi terakhir yang valid (forward fill)
-            // Ini mencegah prediksi muncul sebagai 0 di chart
-            // ketika ada gap insert dari forecast_2.py
+            // Forward-fill: pakai nilai terakhir yang valid kalau masih null
             if ($predMbps === null) {
-                $predMbps = $lastValidPredMbps; // bisa null kalau belum ada sama sekali
+                $predMbps = $lastValidPredMbps;
             }
 
-            // Update last valid hanya kalau ada nilai dan nilainya > 0
+            // Update last valid
             if ($predMbps !== null && $predMbps > 0) {
                 $lastValidPredMbps = $predMbps;
             }
@@ -199,7 +218,6 @@ class ForecastController extends Controller
     private function determineStatus($predictedMbps, $qos)
     {
         $status = 'NORMAL';
-
         if ($predictedMbps > 900)  $status = 'WARNING';
         if ($predictedMbps > 1100) $status = 'CRITICAL (REROUTE)';
 
@@ -208,7 +226,6 @@ class ForecastController extends Controller
                 $status = ($status === 'NORMAL') ? 'WARNING' : 'CRITICAL (REROUTE)';
             }
         }
-
         return $status;
     }
 
@@ -216,11 +233,9 @@ class ForecastController extends Controller
     {
         $totalTimeDiff = 0;
         $rerouteCount  = count($rerouteEvents);
-
         foreach ($rerouteEvents as $event) {
             $totalTimeDiff += $event->time_diff_ms ?? 0;
         }
-
         return [
             'mttd'          => 0,
             'mttr'          => $rerouteCount > 0 ? round($totalTimeDiff / $rerouteCount, 2) : 0,
@@ -237,7 +252,6 @@ class ForecastController extends Controller
         foreach ($data as $row) {
             $actual    = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
-
             if ($actual > 0 && $predicted > 0) {
                 $totalMape         += abs($actual - $predicted) / $actual * 100;
                 $totalSquaredError += pow($actual - $predicted, 2);
