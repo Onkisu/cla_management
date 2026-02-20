@@ -10,9 +10,9 @@ use Carbon\Carbon;
 
 class ForecastController extends Controller
 {
-    // Resolusi bucket dalam detik — harus sama antara actual & predicted
-    // Sesuaikan dengan LOOP_INTERVAL_SEC di forecast_2.py (saat ini 5 detik)
-    const BUCKET_SEC = 5;
+    // Semua data di-bucket ke resolusi ini (detik)
+    // Actual (1s) dan Predicted (5s) keduanya di-snap ke bucket 10s
+    const BUCKET_SEC = 10;
 
     public function index()
     {
@@ -32,13 +32,15 @@ class ForecastController extends Controller
     }
 
     /**
-     * Buat bucket key dengan resolusi BUCKET_SEC detik.
-     * Contoh BUCKET_SEC=5: detik 0,1,2,3,4 → "14:22:00", detik 5,6,7,8,9 → "14:22:05"
+     * Snap timestamp ke bucket 10 detik.
+     * Format output: "Y-m-d H:i:s" tanpa milidetik — max resolusi second.
+     * Contoh: 14:22:13 → "2025-01-01 14:22:10"
+     *         14:22:07 → "2025-01-01 14:22:00"
      */
     private function bucketKey(Carbon $ts): string
     {
-        $bucket = floor($ts->second / self::BUCKET_SEC) * self::BUCKET_SEC;
-        return $ts->format('Y-m-d H:i:') . str_pad($bucket, 2, '0', STR_PAD_LEFT);
+        $snapped = floor($ts->second / self::BUCKET_SEC) * self::BUCKET_SEC;
+        return $ts->format('Y-m-d H:i:') . str_pad($snapped, 2, '0', STR_PAD_LEFT);
     }
 
     public function getForecastData(Request $request)
@@ -95,54 +97,56 @@ class ForecastController extends Controller
             ORDER BY se.timestamp DESC
         ");
 
-        // 3. Actual Traffic — aggregate ke bucket BUCKET_SEC detik
-        //    SUM bytes dalam satu bucket → total throughput per interval
+        // 3. Actual Traffic
+        // Di SQL langsung di-bucket ke 10 detik, AVG Mbps dalam bucket tersebut
+        // Hasilnya: 1 baris per 10 detik, sudah clean tanpa perlu proses lagi di PHP
         $fromTimeStr = $fromTime->toDateTimeString();
         $bucketSec   = self::BUCKET_SEC;
 
         $actualTraffic = DB::select("
             WITH per_second AS (
                 SELECT
-                    date_trunc('second', timestamp)  AS detik,
-                    MAX(bytes_tx)                    AS total_bytes
+                    date_trunc('second', timestamp)  AS ts_sec,
+                    MAX(bytes_tx)                    AS bytes
                 FROM traffic.flow_stats_
                 WHERE timestamp >= ?
-                  AND dpid = 5
-                  AND bytes_tx > 0
-                GROUP BY detik
+                  AND dpid      =  5
+                  AND bytes_tx  >  0
+                GROUP BY ts_sec
             ),
             bucketed AS (
                 SELECT
-                    date_trunc('second',
-                        detik - ((EXTRACT(SECOND FROM detik)::int % ?) * INTERVAL '1 second')
-                    ) AS bucket_ts,
-                    SUM(total_bytes) AS bucket_bytes
+                    -- snap ke bucket 10 detik, hasil format timestamp tanpa milidetik
+                    to_timestamp(
+                        floor(extract(epoch FROM ts_sec) / ?) * ?
+                    )::timestamp AS bucket_ts,
+                    AVG(bytes * 8 / 1000000.0) AS actual_mbps
                 FROM per_second
                 GROUP BY bucket_ts
             )
             SELECT
-                bucket_ts                              AS ts,
-                bucket_bytes * 8 / 1000000.0 / ?      AS actual_mbps
+                bucket_ts AS ts,
+                actual_mbps
             FROM bucketed
             ORDER BY ts ASC
         ", [$fromTimeStr, $bucketSec, $bucketSec]);
-        // ÷ BUCKET_SEC untuk dapat rata-rata Mbps per detik dalam bucket
 
-        // 4. Predicted Traffic — pakai ts_created sebagai sumbu waktu
+        // 4. Predicted Traffic — per 5 detik dari DB, akan di-bucket ke 10 detik di PHP
         $predictedTraffic = DB::table('forecast_1h')
             ->selectRaw('ts_created as ts, y_pred / 1000000.0 as predicted_mbps')
             ->where('ts_created', '>=', $fromTime)
             ->orderBy('ts_created', 'asc')
             ->get();
 
-        // 5. Build predictedMap — bucket ke BUCKET_SEC detik, ambil rata-rata per bucket
-        //    (karena forecast_2.py insert tiap 5s, dalam 1 bucket idealnya 1 baris)
-        $predictedBuckets = []; // key => [sum, count]
+        // 5. Build predictedMap — bucket ke 10 detik, AVG kalau ada >1 prediksi per bucket
+        // Key format: "Y-m-d H:i:s" (max resolusi second, tanpa milidetik)
+        $predictedBuckets = [];
         foreach ($predictedTraffic as $pred) {
             $ts  = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
             $key = $this->bucketKey($ts);
+
             if (!isset($predictedBuckets[$key])) {
-                $predictedBuckets[$key] = ['sum' => 0, 'count' => 0];
+                $predictedBuckets[$key] = ['sum' => 0.0, 'count' => 0];
             }
             $predictedBuckets[$key]['sum']   += (float) $pred->predicted_mbps;
             $predictedBuckets[$key]['count'] += 1;
@@ -150,32 +154,27 @@ class ForecastController extends Controller
 
         $predictedMap = [];
         foreach ($predictedBuckets as $key => $val) {
-            $predictedMap[$key] = $val['sum'] / $val['count']; // rata-rata per bucket
+            $predictedMap[$key] = $val['sum'] / $val['count'];
         }
 
         // 6. Merge Actual & Predicted
+        // Actual sudah di-bucket 10 detik dari SQL → key langsung cocok
         $chartData         = [];
-        $lastValidPredMbps = null; // forward-fill untuk gap
+        $lastValidPredMbps = null; // forward-fill kalau masih ada gap
 
         foreach ($actualTraffic as $actual) {
+            // Parse timestamp dari SQL — sudah dalam format detik, tanpa milidetik
             $timestamp = Carbon::parse($actual->ts)->setTimezone('Asia/Jakarta');
             $key       = $this->bucketKey($timestamp);
 
             $predMbps = $predictedMap[$key] ?? null;
 
-            // Fallback: cari bucket ±1 (±BUCKET_SEC detik)
-            if ($predMbps === null) {
-                $keyNext = $this->bucketKey($timestamp->copy()->addSeconds(self::BUCKET_SEC));
-                $keyPrev = $this->bucketKey($timestamp->copy()->subSeconds(self::BUCKET_SEC));
-                $predMbps = $predictedMap[$keyNext] ?? $predictedMap[$keyPrev] ?? null;
-            }
-
-            // Forward-fill: pakai nilai terakhir yang valid kalau masih null
+            // Forward-fill: pakai nilai terakhir yang valid kalau bucket ini kosong
             if ($predMbps === null) {
                 $predMbps = $lastValidPredMbps;
             }
 
-            // Update last valid
+            // Update tracker nilai valid
             if ($predMbps !== null && $predMbps > 0) {
                 $lastValidPredMbps = $predMbps;
             }
