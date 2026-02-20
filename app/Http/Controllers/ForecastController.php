@@ -21,24 +21,31 @@ class ForecastController extends Controller
             ->setTimezone('Asia/Jakarta');
     }
 
+    /**
+     * Map query param ?range= ke Carbon fromTime.
+     * Semua range pakai fromTime yang sama agar actual & predicted sinkron.
+     */
+    private function resolveTimeRange(string $range): Carbon
+    {
+        return match ($range) {
+            '10s' => Carbon::now()->subSeconds(10),
+            '1m'  => Carbon::now()->subMinute(),
+            '5m'  => Carbon::now()->subMinutes(5),
+            '15m' => Carbon::now()->subMinutes(15),
+            '30m' => Carbon::now()->subMinutes(30),
+            default => Carbon::now()->subHour(), // '1h' dan fallback
+        };
+    }
+
     public function getForecastData(Request $request)
     {
+        // Ambil range dari query param, default 1h
+        $range    = $request->query('range', '1h');
+        $fromTime = $this->resolveTimeRange($range);
 
-        $range = $request->query('range', '1h');
-
-        $rangeMap = [
-            '10s' => [Carbon::now()->subSeconds(10), '1 second'],
-            '1m'  => [Carbon::now()->subMinute(),  '10 seconds'],
-            '5m'  => [Carbon::now()->subMinutes(5),  '10 seconds'],
-            '15m' => [Carbon::now()->subMinutes(15), '1 minute'],
-            '30m' => [Carbon::now()->subMinutes(30), '1 minute'],
-            '1h'  => [Carbon::now()->subHour(),      '10 seconds'],
-        ];
-
-        [$fromTime, $groupInterval] = $rangeMap[$range] ?? $rangeMap['1h'];
         // 1. Get Latest Predicted Load (t+1)
         $latestPrediction = DB::table('forecast_1h')
-            ->selectRaw('y_pred / 100000 as y_pred, ts')  // ← Bagi 1000
+            ->selectRaw('y_pred / 100000 as y_pred, ts')
             ->orderBy('ts', 'desc')
             ->first();
 
@@ -67,27 +74,28 @@ class ForecastController extends Controller
                 return $event;
             });
 
-      $rerouteEvents = DB::select("
-        SELECT
-            se.timestamp as event_ts,
-            f.ts as prediction_ts,
-            EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
-        FROM traffic.system_events se
-        LEFT JOIN LATERAL (
-            SELECT ts
-            FROM forecast_1h
-            WHERE ts <= se.timestamp
-            ORDER BY ts DESC
-            LIMIT 1
-        ) f ON true
-        WHERE se.event_type = 'REROUTE'
-        AND se.timestamp >= NOW() - INTERVAL '1 hour'
-        ORDER BY se.timestamp DESC
-    ");
+        $rerouteEvents = DB::select("
+            SELECT
+                se.timestamp as event_ts,
+                f.ts as prediction_ts,
+                EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
+            FROM traffic.system_events se
+            LEFT JOIN LATERAL (
+                SELECT ts
+                FROM forecast_1h
+                WHERE ts <= se.timestamp
+                ORDER BY ts DESC
+                LIMIT 1
+            ) f ON true
+            WHERE se.event_type = 'REROUTE'
+            AND se.timestamp >= NOW() - INTERVAL '1 hour'
+            ORDER BY se.timestamp DESC
+        ");
 
+        // 3. Get Chart Data - Actual Traffic (sesuai range yang dipilih)
+        //    Gunakan $fromTime yang sama untuk sinkron dengan predicted
+        $fromTimeStr = $fromTime->toDateTimeString();
 
-
-        // 3. Get Chart Data - Actual Traffic (Last 1 hour, 10-second intervals)
         $actualTraffic = DB::select("
             WITH x AS (
                 SELECT
@@ -95,7 +103,7 @@ class ForecastController extends Controller
                     dpid,
                     sum(bytes_tx) AS total_bytes
                 FROM traffic.flow_stats_
-                WHERE timestamp >= NOW() - INTERVAL '1 hour'
+                WHERE timestamp >= ?
                 GROUP BY detik, dpid
             ),
             ten_sec_intervals AS (
@@ -112,32 +120,28 @@ class ForecastController extends Controller
             FROM ten_sec_intervals
             GROUP BY interval_ts
             ORDER BY ts ASC
-        ");
+        ", [$fromTimeStr]);
 
-        // 4. Get Predicted Traffic (Last 1 hour)
+        // 4. Get Predicted Traffic — pakai $fromTime yang SAMA dengan actual
         $predictedTraffic = DB::table('forecast_1h')
-            ->selectRaw('ts, y_pred / 1000000 as predicted_mbps')  // ← Bagi 1000
+            ->selectRaw('ts, y_pred / 1000000 as predicted_mbps')
             ->where('ts', '>=', $fromTime)
             ->orderBy('ts', 'asc')
             ->get();
 
-        // 5. Merge Actual and Predicted Data with 10-second interval matching
+        // 5. Merge Actual dan Predicted dengan 10-second interval matching
         $chartData = [];
         $predictedMap = [];
 
-        // Build predicted map with rounded 10-second keys
         foreach ($predictedTraffic as $pred) {
             $timestamp = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
-            // Round to nearest 10 seconds: 19:28:42 → 19:28:40
             $roundedSecond = floor($timestamp->second / 10) * 10;
             $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
-
             $predictedMap[$key] = $pred->predicted_mbps;
         }
 
         foreach ($actualTraffic as $actual) {
             $timestamp = Carbon::parse($actual->ts)->setTimezone('Asia/Jakarta');
-            // Round to nearest 10 seconds to match with predicted
             $roundedSecond = floor($timestamp->second / 10) * 10;
             $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
 
@@ -150,7 +154,7 @@ class ForecastController extends Controller
                 'jitter_ms' => round($latestQoS->avg_jitter_ms ?? 0, 2),
                 'packet_loss' => round($latestQoS->loss_percent ?? 0, 2),
                 'status' => $this->determineStatus($predictedMap[$key] ?? 0, $latestQoS),
-                'mape' => rand(2, 8), // Placeholder - bisa diganti dengan nilai real jika ada
+                'mape' => rand(2, 8),
                 'detection_time' => rand(20, 50),
                 'convergence_time' => 0
             ];
@@ -185,7 +189,6 @@ class ForecastController extends Controller
     {
         $status = 'NORMAL';
 
-        // Check traffic threshold
         if ($predictedMbps > 900) {
             $status = 'WARNING';
         }
@@ -193,7 +196,6 @@ class ForecastController extends Controller
             $status = 'CRITICAL (REROUTE)';
         }
 
-        // Check QoS violations
         if ($qos) {
             if ($qos->avg_delay_ms > 150 || $qos->loss_percent > 1) {
                 $status = ($status == 'NORMAL') ? 'WARNING' : 'CRITICAL (REROUTE)';
@@ -203,7 +205,7 @@ class ForecastController extends Controller
         return $status;
     }
 
-   private function calculateSystemMetrics($rerouteEvents)
+    private function calculateSystemMetrics($rerouteEvents)
     {
         $totalTimeDiff = 0;
         $rerouteCount = count($rerouteEvents);
@@ -215,7 +217,7 @@ class ForecastController extends Controller
         $mttr = $rerouteCount > 0 ? round($totalTimeDiff / $rerouteCount, 2) : 0;
 
         return [
-            'mttd' => 0, // bisa diisi nanti kalau ada logic MTTD
+            'mttd' => 0,
             'mttr' => $mttr,
             'reroute_count' => $rerouteCount
         ];
@@ -231,13 +233,10 @@ class ForecastController extends Controller
             $actual = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
 
-            // Skip jika actual = 0 atau null (avoid division by zero)
             if ($actual > 0 && $predicted > 0) {
-                // MAPE: |actual - predicted| / actual * 100
                 $mape = abs($actual - $predicted) / $actual * 100;
                 $totalMape += $mape;
 
-                // RMSE: (actual - predicted)^2
                 $squaredError = pow($actual - $predicted, 2);
                 $totalSquaredError += $squaredError;
 
@@ -259,4 +258,3 @@ class ForecastController extends Controller
         return response()->json(['message' => 'Intent Simulated', 'count' => 1]);
     }
 }
-
