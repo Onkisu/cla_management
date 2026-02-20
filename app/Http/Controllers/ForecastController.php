@@ -21,14 +21,27 @@ class ForecastController extends Controller
             ->setTimezone('Asia/Jakarta');
     }
 
-    public function getForecastData()
+    public function getForecastData(Request $request)
     {
+
+        $range = $request->query('range', '1h');
+
+        $rangeMap = [
+            '10s' => [Carbon::now()->subSeconds(10), '1 second'],
+            '1m'  => [Carbon::now()->subMinute(),  '10 seconds'],
+            '5m'  => [Carbon::now()->subMinutes(5),  '10 seconds'],
+            '15m' => [Carbon::now()->subMinutes(15), '1 minute'],
+            '30m' => [Carbon::now()->subMinutes(30), '1 minute'],
+            '1h'  => [Carbon::now()->subHour(),      '10 seconds'],
+        ];
+
+        [$fromTime, $groupInterval] = $rangeMap[$range] ?? $rangeMap['1h'];
         // 1. Get Latest Predicted Load (t+1)
         $latestPrediction = DB::table('forecast_1h')
             ->selectRaw('y_pred / 100000 as y_pred, ts')  // ← Bagi 1000
             ->orderBy('ts', 'desc')
             ->first();
-        
+
         if ($latestPrediction) {
             $latestPrediction->ts = Carbon::parse($latestPrediction->ts)
                 ->setTimezone('Asia/Jakarta')
@@ -53,18 +66,18 @@ class ForecastController extends Controller
                     ->format('Y-m-d H:i:s');
                 return $event;
             });
-        
+
       $rerouteEvents = DB::select("
-        SELECT 
+        SELECT
             se.timestamp as event_ts,
             f.ts as prediction_ts,
             EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
         FROM traffic.system_events se
         LEFT JOIN LATERAL (
-            SELECT ts 
-            FROM forecast_1h 
-            WHERE ts <= se.timestamp 
-            ORDER BY ts DESC 
+            SELECT ts
+            FROM forecast_1h
+            WHERE ts <= se.timestamp
+            ORDER BY ts DESC
             LIMIT 1
         ) f ON true
         WHERE se.event_type = 'REROUTE'
@@ -104,21 +117,21 @@ class ForecastController extends Controller
         // 4. Get Predicted Traffic (Last 1 hour)
         $predictedTraffic = DB::table('forecast_1h')
             ->selectRaw('ts, y_pred / 1000000 as predicted_mbps')  // ← Bagi 1000
-            ->where('ts', '>=', Carbon::now()->subHour())
+            ->where('ts', '>=', $fromTime)
             ->orderBy('ts', 'asc')
             ->get();
 
         // 5. Merge Actual and Predicted Data with 10-second interval matching
         $chartData = [];
         $predictedMap = [];
-        
+
         // Build predicted map with rounded 10-second keys
         foreach ($predictedTraffic as $pred) {
             $timestamp = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
             // Round to nearest 10 seconds: 19:28:42 → 19:28:40
             $roundedSecond = floor($timestamp->second / 10) * 10;
             $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
-            
+
             $predictedMap[$key] = $pred->predicted_mbps;
         }
 
@@ -127,7 +140,7 @@ class ForecastController extends Controller
             // Round to nearest 10 seconds to match with predicted
             $roundedSecond = floor($timestamp->second / 10) * 10;
             $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
-            
+
             $chartData[] = [
                 'id' => count($chartData) + 1,
                 'run_time' => $timestamp->format('H:i:s'),
@@ -171,7 +184,7 @@ class ForecastController extends Controller
     private function determineStatus($predictedMbps, $qos)
     {
         $status = 'NORMAL';
-        
+
         // Check traffic threshold
         if ($predictedMbps > 900) {
             $status = 'WARNING';
@@ -217,17 +230,17 @@ class ForecastController extends Controller
         foreach ($data as $row) {
             $actual = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
-            
+
             // Skip jika actual = 0 atau null (avoid division by zero)
             if ($actual > 0 && $predicted > 0) {
                 // MAPE: |actual - predicted| / actual * 100
                 $mape = abs($actual - $predicted) / $actual * 100;
                 $totalMape += $mape;
-                
+
                 // RMSE: (actual - predicted)^2
                 $squaredError = pow($actual - $predicted, 2);
                 $totalSquaredError += $squaredError;
-                
+
                 $validCount++;
             }
         }

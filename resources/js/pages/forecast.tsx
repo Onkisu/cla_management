@@ -45,14 +45,14 @@ type ModelMetrics = {
 const ThresholdAnnotation = (props: any) => {
     const { viewBox } = props;
     if (!viewBox) return null;
-    
+
     // Fixed position di kanan atas chart area
     const labelX = viewBox.x + viewBox.width - 150;
     const labelY = viewBox.y + 30;
     const arrowStartX = labelX + 10;
     const arrowStartY = labelY + 30;
     const arrowEndY = viewBox.y + viewBox.height * 0.73; // nunjuk ke threshold line (sekitar 0.2 di Y axis)
-    
+
     return (
         <g>
             {/* Background Box with shadow */}
@@ -61,7 +61,7 @@ const ThresholdAnnotation = (props: any) => {
                     <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.2"/>
                 </filter>
             </defs>
-            
+
             <rect
                 x={labelX}
                 y={labelY}
@@ -71,7 +71,7 @@ const ThresholdAnnotation = (props: any) => {
                 rx="6"
                 filter="url(#shadow)"
             />
-            
+
             {/* Icon */}
             <text
                 x={labelX + 8}
@@ -80,7 +80,7 @@ const ThresholdAnnotation = (props: any) => {
             >
                 ⚡
             </text>
-            
+
             {/* Text */}
             <text
                 x={labelX + 25}
@@ -100,7 +100,7 @@ const ThresholdAnnotation = (props: any) => {
             >
                 40 Mbps
             </text>
-            
+
             {/* Vertical Arrow */}
             <defs>
                 <marker
@@ -114,7 +114,7 @@ const ThresholdAnnotation = (props: any) => {
                     <polygon points="0 0, 8 0, 4 8" fill="#10b981" />
                 </marker>
             </defs>
-            
+
             <line
                 x1={arrowStartX}
                 y1={arrowStartY}
@@ -135,10 +135,13 @@ export default function ForecastDashboard() {
     const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
+    const [timeRange, setTimeRange] = useState<string>('1h');
+
 
     const fetchData = async () => {
         try {
-            const res = await axios.get('/api/forecast/data');
+            // const res = await axios.get('/api/forecast/data');
+            const res = await axios.get('/api/forecast/data', { params: { range: timeRange } });
             setData(res.data.data || []);
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
@@ -155,7 +158,9 @@ export default function ForecastDashboard() {
         fetchData();
         const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
         return () => clearInterval(interval);
-    }, []);
+    },[timeRange]);
+
+
 
     const getStatusColor = (status: string) => {
         if (status?.includes('CRITICAL')) return 'text-red-600 bg-red-100 border-red-200';
@@ -170,9 +175,9 @@ export default function ForecastDashboard() {
 
     const formatTime = (timestamp: string) => {
         const date = new Date(timestamp);
-        return date.toLocaleTimeString('id-ID', { 
-            hour: '2-digit', 
-            minute: '2-digit', 
+        return date.toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit',
             second: '2-digit',
             hour12: false
         });
@@ -223,33 +228,33 @@ export default function ForecastDashboard() {
 
                 {/* --- NETWORK QoS CARDS --- */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <KpiCard 
-                        title="Predicted Load (t+10)" 
-                        value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`} 
-                        sub="Traffic Forecast" 
-                        icon="📈" 
-                        status="neutral" 
+                    <KpiCard
+                        title="Predicted Load (t+10)"
+                        value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`}
+                        sub="Traffic Forecast"
+                        icon="📈"
+                        status="neutral"
                     />
-                    <KpiCard 
-                        title="One-Way Delay" 
-                        value={`${formatNumber(latest?.delay_ms, 1)} ms`} 
-                        sub="ITU-T G.114 Limit: <150 ms" 
-                        icon="⏱️" 
-                        status={(latest?.delay_ms || 0) > 150 ? 'danger' : 'safe'} 
+                    <KpiCard
+                        title="One-Way Delay"
+                        value={`${formatNumber(latest?.delay_ms, 1)} ms`}
+                        sub="ITU-T G.114 Limit: <150 ms"
+                        icon="⏱️"
+                        status={(latest?.delay_ms || 0) > 150 ? 'danger' : 'safe'}
                     />
-                    <KpiCard 
-                        title="Jitter" 
-                        value={`${formatNumber(latest?.jitter_ms, 2)} ms`} 
-                        sub="ITU-T Limit: <30 ms" 
-                        icon="〰️" 
-                        status={(latest?.jitter_ms || 0) > 30 ? 'danger' : 'safe'} 
+                    <KpiCard
+                        title="Jitter"
+                        value={`${formatNumber(latest?.jitter_ms, 2)} ms`}
+                        sub="ITU-T Limit: <30 ms"
+                        icon="〰️"
+                        status={(latest?.jitter_ms || 0) > 30 ? 'danger' : 'safe'}
                     />
-                    <KpiCard 
-                        title="Packet Loss" 
-                        value={`${formatNumber(latest?.packet_loss, 2)} %`} 
-                        sub="Threshold: <1%" 
-                        icon="📉" 
-                        status={(latest?.packet_loss || 0) > 1 ? 'danger' : 'safe'} 
+                    <KpiCard
+                        title="Packet Loss"
+                        value={`${formatNumber(latest?.packet_loss, 2)} %`}
+                        sub="Threshold: <1%"
+                        icon="📉"
+                        status={(latest?.packet_loss || 0) > 1 ? 'danger' : 'safe'}
                     />
                 </div>
 
@@ -260,6 +265,18 @@ export default function ForecastDashboard() {
                     <div className="lg:col-span-2 bg-white dark:bg-neutral-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 h-[500px] flex flex-col">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Real-time Traffic Forecasting</h3>
+                            <select
+    value={timeRange}
+    onChange={(e) => setTimeRange(e.target.value)}
+    className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
+>
+    <option value="10s">Last 10 sec</option>
+    <option value="1m">Last 1 min</option>
+    <option value="5m">Last 5 min</option>
+    <option value="15m">Last 15 min</option>
+    <option value="30m">Last 30 min</option>
+    <option value="1h">Last 1 hour</option>
+</select>
                             <div className="flex gap-4 text-xs">
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div> Actual</span>
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 border border-orange-500 rounded-full"></div> Predicted</span>
@@ -276,43 +293,43 @@ export default function ForecastDashboard() {
                                             </linearGradient>
                                         </defs>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                                        <XAxis 
-                                            dataKey="run_time" 
-                                            stroke="#9ca3af" 
-                                            fontSize={11} 
+                                        <XAxis
+                                            dataKey="run_time"
+                                            stroke="#9ca3af"
+                                            fontSize={11}
                                             tick={{dy: 10}}
                                             interval="preserveStartEnd"
                                         />
-                                        <YAxis 
-                                            stroke="#9ca3af" 
+                                        <YAxis
+                                            stroke="#9ca3af"
                                             fontSize={11}
                                             label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
                                         />
-                                        <Tooltip 
+                                        <Tooltip
                                             contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
                                             formatter={(value: any) => [`${Number(value).toFixed(2)} Mbps`, '']}
                                         />
-                                        <Area 
-                                            type="monotone" 
-                                            dataKey="actual_mbps" 
-                                            stroke="#3b82f6" 
-                                            fill="url(#colorActual)" 
-                                            strokeWidth={2} 
-                                            name="Actual" 
+                                        <Area
+                                            type="monotone"
+                                            dataKey="actual_mbps"
+                                            stroke="#3b82f6"
+                                            fill="url(#colorActual)"
+                                            strokeWidth={2}
+                                            name="Actual"
                                         />
-                                        <Line 
-                                            type="monotone" 
-                                            dataKey="predicted_mbps" 
-                                            stroke="#f97316"  
-                                            strokeWidth={2} 
-                                            dot={false} 
-                                            name="Forecast" 
+                                        <Line
+                                            type="monotone"
+                                            dataKey="predicted_mbps"
+                                            stroke="#f97316"
+                                            strokeWidth={2}
+                                            dot={false}
+                                            name="Forecast"
                                         />
                                         {/* Threshold Line */}
-                       <ReferenceLine 
-            y={40} 
-            stroke="#10b981" 
-            strokeDasharray="8 4" 
+                       <ReferenceLine
+            y={40}
+            stroke="#10b981"
+            strokeDasharray="8 4"
             strokeWidth={2}
             label={<ThresholdAnnotation />}
         />
@@ -338,8 +355,8 @@ export default function ForecastDashboard() {
                                         {systemEvents.map((event) => {
                                             const style = getEventStyle(event.event_type);
                                             return (
-                                                <div 
-                                                    key={event.id} 
+                                                <div
+                                                    key={event.id}
                                                     className={`${style.bg} border border-gray-200 dark:border-neutral-600 rounded-lg p-2.5 transition-all hover:shadow-sm`}
                                                 >
                                                     <div className="flex items-start justify-between gap-2">
@@ -382,8 +399,8 @@ export default function ForecastDashboard() {
                                 🛡️ System Reliability
                             </h3>
 
-                            <div className="space-y-5 relative z-10">                     
-                              
+                            <div className="space-y-5 relative z-10">
+
 
                                 <div className="flex items-center justify-between">
                                     <div>
@@ -404,8 +421,8 @@ export default function ForecastDashboard() {
                                     </div>
                                 </div>
                                 <div className="w-full bg-slate-700 rounded-full h-1">
-                                    <div 
-                                        className="bg-orange-500 h-1 rounded-full transition-all duration-500" 
+                                    <div
+                                        className="bg-orange-500 h-1 rounded-full transition-all duration-500"
                                         style={{ width: `${Math.min((metrics?.mttr || 0) / 10000 * 100, 100)}%` }}
                                     ></div>
                                 </div>
@@ -418,7 +435,7 @@ export default function ForecastDashboard() {
                                     </span>
                                 </div>
 
-                    
+
                                 <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
                                     <span className="text-xs text-slate-400">RMSE</span>
                                     <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
@@ -433,7 +450,7 @@ export default function ForecastDashboard() {
                     </div>
                 </div>
 
-              
+
             </div>
         </AppLayout>
     );
