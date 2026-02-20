@@ -124,9 +124,9 @@ class ForecastController extends Controller
 
         // 4. Get Predicted Traffic — pakai $fromTime yang SAMA dengan actual
         $predictedTraffic = DB::table('forecast_1h')
-            ->selectRaw('ts, y_pred / 1000000 as predicted_mbps')
-            ->where('ts', '>=', $fromTime)
-            ->orderBy('ts', 'asc')
+            ->selectRaw('ts_created as ts, y_pred / 1000000 as predicted_mbps')
+            ->where('ts_created', '>=', $fromTime)
+            ->orderBy('ts_created', 'asc')
             ->get();
 
         // 5. Merge Actual dan Predicted dengan 10-second interval matching
