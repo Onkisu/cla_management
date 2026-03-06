@@ -10,38 +10,63 @@ use Carbon\Carbon;
 
 class ForecastController extends Controller
 {
+    // Semua data di-bucket ke resolusi ini (detik)
+    // Actual (1s) dan Predicted (5s) keduanya di-snap ke bucket 10s
+    const BUCKET_SEC = 10;
+
     public function index()
     {
         return Inertia::render('forecast');
     }
 
-    private function toWIB($timestamp)
+    private function resolveTimeRange(string $range): Carbon
     {
-        return Carbon::parse($timestamp)
-            ->setTimezone('Asia/Jakarta');
+        return match ($range) {
+            '10s' => Carbon::now()->subSeconds(10),
+            '1m'  => Carbon::now()->subMinute(),
+            '5m'  => Carbon::now()->subMinutes(5),
+            '15m' => Carbon::now()->subMinutes(15),
+            '30m' => Carbon::now()->subMinutes(30),
+            default => Carbon::now()->subHour(),
+        };
     }
 
-    public function getForecastData()
+    /**
+     * Snap timestamp ke bucket 10 detik.
+     * Format output: "Y-m-d H:i:s" tanpa milidetik — max resolusi second.
+     * Contoh: 14:22:13 → "2025-01-01 14:22:10"
+     *         14:22:07 → "2025-01-01 14:22:00"
+     */
+    private function bucketKey(Carbon $ts): string
     {
-        // 1. Get Latest Predicted Load (t+1)
+        $snapped = floor($ts->second / self::BUCKET_SEC) * self::BUCKET_SEC;
+        return $ts->format('Y-m-d H:i:') . str_pad($snapped, 2, '0', STR_PAD_LEFT);
+    }
+
+    public function getForecastData(Request $request)
+    {
+        $range    = $request->query('range', '1h');
+        $fromTime = $this->resolveTimeRange($range);
+
+        // 1. Latest Predicted Load
         $latestPrediction = DB::table('forecast_1h')
-            ->selectRaw('y_pred / 100000 as y_pred, ts')  // ← Bagi 1000
-            ->orderBy('ts', 'desc')
+            ->selectRaw('y_pred / 1000000.0 as y_pred, ts_created as ts')
+            ->orderBy('ts_created', 'desc')
             ->first();
-        
+
         if ($latestPrediction) {
             $latestPrediction->ts = Carbon::parse($latestPrediction->ts)
                 ->setTimezone('Asia/Jakarta')
                 ->format('Y-m-d H:i:s');
         }
 
-        // 2. Get Latest QoS Metrics (Delay, Jitter, Loss)
+        // 2. Latest QoS Metrics
         $latestQoS = DB::table('traffic.itg_session_results')
             ->select('avg_delay_ms', 'avg_jitter_ms', 'loss_percent')
             ->orderBy('id', 'desc')
             ->first();
 
-        // 2a. Get System Events (Automation Logs) - Last 50 events
+        // 2a. System Events
         $systemEvents = DB::table('traffic.system_events')
             ->select('id', 'timestamp', 'event_type', 'description', 'trigger_value')
             ->orderBy('timestamp', 'desc')
@@ -53,191 +78,189 @@ class ForecastController extends Controller
                     ->format('Y-m-d H:i:s');
                 return $event;
             });
-        
-      $rerouteEvents = DB::select("
-        SELECT 
-            se.timestamp as event_ts,
-            f.ts as prediction_ts,
-            EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
-        FROM traffic.system_events se
-        LEFT JOIN LATERAL (
-            SELECT ts 
-            FROM forecast_1h 
-            WHERE ts <= se.timestamp 
-            ORDER BY ts DESC 
-            LIMIT 1
-        ) f ON true
-        WHERE se.event_type = 'REROUTE'
-        AND se.timestamp >= NOW() - INTERVAL '1 hour'
-        ORDER BY se.timestamp DESC
-    ");
 
-
-
-        // 3. Get Chart Data - Actual Traffic (Last 1 hour, 10-second intervals)
-        $actualTraffic = DB::select("
-            WITH x AS (
-                SELECT
-                    date_trunc('second', timestamp) AS detik,
-                    dpid,
-                    sum(bytes_tx) AS total_bytes
-                FROM traffic.flow_stats_
-                WHERE timestamp >= NOW() - INTERVAL '1 hour'
-                GROUP BY detik, dpid
-            ),
-            ten_sec_intervals AS (
-                SELECT
-                    date_trunc('second', detik - (EXTRACT(SECOND FROM detik)::int % 10) * INTERVAL '1 second') AS interval_ts,
-                    dpid,
-                    SUM(total_bytes) AS total_bytes
-                FROM x
-                GROUP BY interval_ts, dpid
-            )
+        $rerouteEvents = DB::select("
             SELECT
-                interval_ts AS ts,
-                MAX(CASE WHEN dpid = 5 THEN total_bytes * 8 / 10000000 END) AS actual_mbps
-            FROM ten_sec_intervals
-            GROUP BY interval_ts
-            ORDER BY ts ASC
+                se.timestamp as event_ts,
+                f.ts_created as prediction_ts,
+                EXTRACT(EPOCH FROM (se.timestamp - f.ts_created)) * 1000 as time_diff_ms
+            FROM traffic.system_events se
+            LEFT JOIN LATERAL (
+                SELECT ts_created
+                FROM forecast_1h
+                WHERE ts_created <= se.timestamp
+                ORDER BY ts_created DESC
+                LIMIT 1
+            ) f ON true
+            WHERE se.event_type = 'REROUTE'
+            AND se.timestamp >= NOW() - INTERVAL '1 hour'
+            ORDER BY se.timestamp DESC
         ");
 
-        // 4. Get Predicted Traffic (Last 1 hour)
+        // 3. Actual Traffic
+        // Di SQL langsung di-bucket ke 10 detik, AVG Mbps dalam bucket tersebut
+        // Hasilnya: 1 baris per 10 detik, sudah clean tanpa perlu proses lagi di PHP
+        $fromTimeStr = $fromTime->toDateTimeString();
+        $bucketSec   = self::BUCKET_SEC;
+
+        $actualTraffic = DB::select("
+            WITH per_second AS (
+                SELECT
+                    date_trunc('second', timestamp)  AS ts_sec,
+                    MAX(bytes_tx)                    AS bytes
+                FROM traffic.flow_stats_
+                WHERE timestamp >= ?
+                  AND dpid      =  5
+                  AND bytes_tx  >  0
+                GROUP BY ts_sec
+            ),
+            bucketed AS (
+                SELECT
+                    -- snap ke bucket 10 detik, hasil format timestamp tanpa milidetik
+                    to_timestamp(
+                        floor(extract(epoch FROM ts_sec) / ?) * ?
+                    )::timestamp AS bucket_ts,
+                    AVG(bytes * 8 / 1000000.0) AS actual_mbps
+                FROM per_second
+                GROUP BY bucket_ts
+            )
+            SELECT
+                bucket_ts AS ts,
+                actual_mbps
+            FROM bucketed
+            ORDER BY ts ASC
+        ", [$fromTimeStr, $bucketSec, $bucketSec]);
+
+        // 4. Predicted Traffic — per 5 detik dari DB, akan di-bucket ke 10 detik di PHP
         $predictedTraffic = DB::table('forecast_1h')
-            ->selectRaw('ts, y_pred / 1000000 as predicted_mbps')  // ← Bagi 1000
-            ->where('ts', '>=', Carbon::now()->subHour())
-            ->orderBy('ts', 'asc')
+            ->selectRaw('ts_created as ts, y_pred / 1000000.0 as predicted_mbps')
+            ->where('ts_created', '>=', $fromTime)
+            ->orderBy('ts_created', 'asc')
             ->get();
 
-        // 5. Merge Actual and Predicted Data with 10-second interval matching
-        $chartData = [];
-        $predictedMap = [];
-        
-        // Build predicted map with rounded 10-second keys
+        // 5. Build predictedMap — bucket ke 10 detik, AVG kalau ada >1 prediksi per bucket
+        // Key format: "Y-m-d H:i:s" (max resolusi second, tanpa milidetik)
+        $predictedBuckets = [];
         foreach ($predictedTraffic as $pred) {
-            $timestamp = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
-            // Round to nearest 10 seconds: 19:28:42 → 19:28:40
-            $roundedSecond = floor($timestamp->second / 10) * 10;
-            $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
-            
-            $predictedMap[$key] = $pred->predicted_mbps;
+            $ts  = Carbon::parse($pred->ts)->setTimezone('Asia/Jakarta');
+            $key = $this->bucketKey($ts);
+
+            if (!isset($predictedBuckets[$key])) {
+                $predictedBuckets[$key] = ['sum' => 0.0, 'count' => 0];
+            }
+            $predictedBuckets[$key]['sum']   += (float) $pred->predicted_mbps;
+            $predictedBuckets[$key]['count'] += 1;
         }
 
+        $predictedMap = [];
+        foreach ($predictedBuckets as $key => $val) {
+            $predictedMap[$key] = $val['sum'] / $val['count'];
+        }
+
+        // 6. Merge Actual & Predicted
+        // Actual sudah di-bucket 10 detik dari SQL → key langsung cocok
+        $chartData         = [];
+        $lastValidPredMbps = null; // forward-fill kalau masih ada gap
+
         foreach ($actualTraffic as $actual) {
+            // Parse timestamp dari SQL — sudah dalam format detik, tanpa milidetik
             $timestamp = Carbon::parse($actual->ts)->setTimezone('Asia/Jakarta');
-            // Round to nearest 10 seconds to match with predicted
-            $roundedSecond = floor($timestamp->second / 10) * 10;
-            $key = $timestamp->format('Y-m-d H:i:') . str_pad($roundedSecond, 2, '0', STR_PAD_LEFT);
-            
+            $key       = $this->bucketKey($timestamp);
+
+            $predMbps = $predictedMap[$key] ?? null;
+
+            // Forward-fill: pakai nilai terakhir yang valid kalau bucket ini kosong
+            if ($predMbps === null) {
+                $predMbps = $lastValidPredMbps;
+            }
+
+            // Update tracker nilai valid
+            if ($predMbps !== null && $predMbps > 0) {
+                $lastValidPredMbps = $predMbps;
+            }
+
             $chartData[] = [
-                'id' => count($chartData) + 1,
-                'run_time' => $timestamp->format('H:i:s'),
-                'actual_mbps' => round($actual->actual_mbps ?? 0, 2),
-                'predicted_mbps' => round($predictedMap[$key] ?? 0, 2),
-                'delay_ms' => round($latestQoS->avg_delay_ms ?? 0, 1),
-                'jitter_ms' => round($latestQoS->avg_jitter_ms ?? 0, 2),
-                'packet_loss' => round($latestQoS->loss_percent ?? 0, 2),
-                'status' => $this->determineStatus($predictedMap[$key] ?? 0, $latestQoS),
-                'mape' => rand(2, 8), // Placeholder - bisa diganti dengan nilai real jika ada
-                'detection_time' => rand(20, 50),
-                'convergence_time' => 0
+                'id'               => count($chartData) + 1,
+                'run_time'         => $timestamp->format('H:i:s'),
+                'actual_mbps'      => round((float)($actual->actual_mbps ?? 0), 3),
+                'predicted_mbps'   => round((float)($predMbps ?? 0), 3),
+                'delay_ms'         => round($latestQoS->avg_delay_ms ?? 0, 1),
+                'jitter_ms'        => round($latestQoS->avg_jitter_ms ?? 0, 2),
+                'packet_loss'      => round($latestQoS->loss_percent ?? 0, 2),
+                'status'           => $this->determineStatus($predMbps ?? 0, $latestQoS),
+                'mape'             => 0,
+                'detection_time'   => 0,
+                'convergence_time' => 0,
             ];
         }
 
-        // 6. Calculate System Metrics (TTR)
         $systemMetrics = $this->calculateSystemMetrics($rerouteEvents);
-
-        // 6a. Calculate Model Performance Metrics (MAPE & RMSE)
-        $modelMetrics = $this->calculateModelMetrics($chartData);
-
-        // 7. Get Latest Status
-        $latestStatus = end($chartData);
+        $modelMetrics  = $this->calculateModelMetrics($chartData);
+        $latestStatus  = end($chartData);
 
         return response()->json([
-            'data' => $chartData,
-            'system_events' => $systemEvents,
-            'latest_status' => $latestStatus ?: [
+            'data'           => $chartData,
+            'system_events'  => $systemEvents,
+            'latest_status'  => $latestStatus ?: [
                 'predicted_mbps' => $latestPrediction->y_pred ?? 0,
-                'delay_ms' => $latestQoS->avg_delay_ms ?? 0,
-                'jitter_ms' => $latestQoS->avg_jitter_ms ?? 0,
-                'packet_loss' => $latestQoS->loss_percent ?? 0,
-                'status' => 'NORMAL',
-                'mape' => 0
+                'delay_ms'       => $latestQoS->avg_delay_ms ?? 0,
+                'jitter_ms'      => $latestQoS->avg_jitter_ms ?? 0,
+                'packet_loss'    => $latestQoS->loss_percent ?? 0,
+                'status'         => 'NORMAL',
+                'mape'           => 0,
             ],
             'system_metrics' => $systemMetrics,
-            'model_metrics' => $modelMetrics
+            'model_metrics'  => $modelMetrics,
         ]);
     }
 
     private function determineStatus($predictedMbps, $qos)
     {
         $status = 'NORMAL';
-        
-        // Check traffic threshold
-        if ($predictedMbps > 900) {
-            $status = 'WARNING';
-        }
-        if ($predictedMbps > 1100) {
-            $status = 'CRITICAL (REROUTE)';
-        }
+        if ($predictedMbps > 900)  $status = 'WARNING';
+        if ($predictedMbps > 1100) $status = 'CRITICAL (REROUTE)';
 
-        // Check QoS violations
         if ($qos) {
             if ($qos->avg_delay_ms > 150 || $qos->loss_percent > 1) {
-                $status = ($status == 'NORMAL') ? 'WARNING' : 'CRITICAL (REROUTE)';
+                $status = ($status === 'NORMAL') ? 'WARNING' : 'CRITICAL (REROUTE)';
             }
         }
-
         return $status;
     }
 
-   private function calculateSystemMetrics($rerouteEvents)
+    private function calculateSystemMetrics($rerouteEvents)
     {
         $totalTimeDiff = 0;
-        $rerouteCount = count($rerouteEvents);
-
+        $rerouteCount  = count($rerouteEvents);
         foreach ($rerouteEvents as $event) {
             $totalTimeDiff += $event->time_diff_ms ?? 0;
         }
-
-        $mttr = $rerouteCount > 0 ? round($totalTimeDiff / $rerouteCount, 2) : 0;
-
         return [
-            'mttd' => 0, // bisa diisi nanti kalau ada logic MTTD
-            'mttr' => $mttr,
-            'reroute_count' => $rerouteCount
+            'mttd'          => 0,
+            'mttr'          => $rerouteCount > 0 ? round($totalTimeDiff / $rerouteCount, 2) : 0,
+            'reroute_count' => $rerouteCount,
         ];
     }
 
     private function calculateModelMetrics($data)
     {
-        $totalMape = 0;
+        $totalMape         = 0;
         $totalSquaredError = 0;
-        $validCount = 0;
+        $validCount        = 0;
 
         foreach ($data as $row) {
-            $actual = $row['actual_mbps'];
+            $actual    = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
-            
-            // Skip jika actual = 0 atau null (avoid division by zero)
             if ($actual > 0 && $predicted > 0) {
-                // MAPE: |actual - predicted| / actual * 100
-                $mape = abs($actual - $predicted) / $actual * 100;
-                $totalMape += $mape;
-                
-                // RMSE: (actual - predicted)^2
-                $squaredError = pow($actual - $predicted, 2);
-                $totalSquaredError += $squaredError;
-                
+                $totalMape         += abs($actual - $predicted) / $actual * 100;
+                $totalSquaredError += pow($actual - $predicted, 2);
                 $validCount++;
             }
         }
 
-        $avgMape = $validCount > 0 ? round($totalMape / $validCount, 2) : 0;
-        $rmse = $validCount > 0 ? round(sqrt($totalSquaredError / $validCount), 2) : 0;
-
         return [
-            'mape' => $avgMape,
-            'rmse' => $rmse
+            'mape' => $validCount > 0 ? round($totalMape / $validCount, 2) : 0,
+            'rmse' => $validCount > 0 ? round(sqrt($totalSquaredError / $validCount), 4) : 0,
         ];
     }
 
@@ -246,4 +269,3 @@ class ForecastController extends Controller
         return response()->json(['message' => 'Intent Simulated', 'count' => 1]);
     }
 }
-
