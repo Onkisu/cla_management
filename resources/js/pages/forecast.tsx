@@ -411,12 +411,12 @@ export default function ForecastDashboard() {
                                 </div>
 
                                 {/* Accuracy Badge */}
-                                <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
+                                {/* <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
                                     <span className="text-xs text-slate-400">MAPE</span>
                                     <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
                                         {formatNumber(modelMetrics?.mape, 1)}%
                                     </span>
-                                </div>
+                                </div> */}
 
                     
                                 <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
