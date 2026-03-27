@@ -136,12 +136,13 @@ export default function ForecastDashboard() {
     const [loading, setLoading] = useState(true);
     const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
     const [timeRange, setTimeRange] = useState<string>('1h');
+    const [dpid, setDpid] = useState<number>(5);
 
 
     const fetchData = async () => {
         try {
             // const res = await axios.get('/api/forecast/data');
-            const res = await axios.get('/api/forecast/data', { params: { range: timeRange } });
+            const res = await axios.get('/api/forecast/data', { params: { range: timeRange, dpid: dpid } });
             setData(res.data.data || []);
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
@@ -158,7 +159,7 @@ export default function ForecastDashboard() {
         fetchData();
         const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
         return () => clearInterval(interval);
-    },[timeRange]);
+    },[timeRange, dpid]);
 
 
 
@@ -265,6 +266,18 @@ export default function ForecastDashboard() {
                     <div className="lg:col-span-2 bg-white dark:bg-neutral-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 h-[500px] flex flex-col">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Real-time Traffic Forecasting</h3>
+
+                                        <select
+                value={dpid}
+                onChange={(e) => setDpid(Number(e.target.value))}
+                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
+            >
+                <option value={1}>DPID 1</option>
+                <option value={2}>DPID 2</option>
+                <option value={3}>DPID 3</option>
+                <option value={4}>DPID 4</option>
+                <option value={5}>DPID 5</option>
+            </select>
                             <select
     value={timeRange}
     onChange={(e) => setTimeRange(e.target.value)}

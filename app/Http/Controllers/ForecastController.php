@@ -47,6 +47,7 @@ class ForecastController extends Controller
     {
         $range    = $request->query('range', '1h');
         $fromTime = $this->resolveTimeRange($range);
+        $dpid = (int) $request->query('dpid', 5); // default DPID 5
 
         // 1. Latest Predicted Load
         $latestPrediction = DB::table('forecast_1h')
@@ -110,7 +111,7 @@ class ForecastController extends Controller
                     MAX(bytes_tx)                    AS bytes
                 FROM traffic.flow_stats_
                 WHERE timestamp >= ?
-                  AND dpid      =  5
+                  AND dpid      =  ?
                   AND bytes_tx  >  0
                 GROUP BY ts_sec
             ),
@@ -129,7 +130,7 @@ class ForecastController extends Controller
                 actual_mbps
             FROM bucketed
             ORDER BY ts ASC
-        ", [$fromTimeStr, $bucketSec, $bucketSec]);
+        ", [$fromTimeStr,$dpid, $bucketSec, $bucketSec]);
 
         // 4. Predicted Traffic — per 5 detik dari DB, akan di-bucket ke 10 detik di PHP
         $predictedTraffic = DB::table('forecast_1h')
