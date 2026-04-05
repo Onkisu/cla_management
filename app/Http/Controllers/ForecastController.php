@@ -109,7 +109,7 @@ class ForecastController extends Controller
                 SELECT
                     date_trunc('second', timestamp)  AS ts_sec,
                     MAX(bytes_tx)                    AS bytes
-                FROM traffic.flow_stats_
+                FROM traffic.flow_stats_1
                 WHERE timestamp >= ?
                   AND dpid      =  ?
                   AND bytes_tx  >  0
