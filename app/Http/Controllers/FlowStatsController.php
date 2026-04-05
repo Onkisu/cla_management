@@ -14,7 +14,7 @@ class FlowStatsController extends Controller
     public function getStatsByCategory(): JsonResponse
     {
         // 1. Ambil 2 Timestamp Terakhir dari tabel RAW
-        $timestamps = DB::table('traffic.flow_stats')
+        $timestamps = DB::table('traffic.flow_stats_1')
             ->select('timestamp')
             ->distinct()
             ->orderBy('timestamp', 'desc')
@@ -36,7 +36,7 @@ class FlowStatsController extends Controller
         }
 
         // 2. Query Data T_NOW
-        $stats_now = DB::table('traffic.flow_stats')
+        $stats_now = DB::table('traffic.flow_stats_1')
             ->select('category',
                 DB::raw('SUM(bytes_tx) as total_bytes_tx'),
                 DB::raw('SUM(pkts_tx) as total_pkts_tx'),
@@ -54,7 +54,7 @@ class FlowStatsController extends Controller
         // 3. Query Data T_PREV (Penting untuk hitung Delta & Jitter)
         $stats_prev = collect();
         if ($ts_prev) {
-            $stats_prev = DB::table('traffic.flow_stats')
+            $stats_prev = DB::table('traffic.flow_stats_1')
                 ->select('category',
                     DB::raw('SUM(bytes_tx) as total_bytes_tx'),
                     DB::raw('SUM(pkts_tx) as total_pkts_tx'),
@@ -129,7 +129,7 @@ class FlowStatsController extends Controller
 
     public function getFilterOptions(): JsonResponse
     {
-        $categories = DB::table('traffic.flow_stats')
+        $categories = DB::table('traffic.flow_stats_1')
             ->select('category')
             ->whereNotNull('category')
             ->where('category', '!=', 'unknown')
