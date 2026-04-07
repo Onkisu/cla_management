@@ -137,13 +137,18 @@ export default function ForecastDashboard() {
     const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
     const [timeRange, setTimeRange] = useState<string>('1h');
     const [dpid, setDpid] = useState<number>(5);
+    const [logScale, setLogScale] = useState(false);
 
 
     const fetchData = async () => {
         try {
             // const res = await axios.get('/api/forecast/data');
             const res = await axios.get('/api/forecast/data', { params: { range: timeRange, dpid: dpid } });
-            setData(res.data.data || []);
+              setData((res.data.data || []).map((d: TrafficData) => ({
+            ...d,
+            actual_mbps: d.actual_mbps <= 0 ? 0.001 : d.actual_mbps,
+            predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
+            })));
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
             setMetrics(res.data.system_metrics || null);
@@ -290,6 +295,17 @@ export default function ForecastDashboard() {
     <option value="30m">Last 30 min</option>
     <option value="1h">Last 1 hour</option>
 </select>
+
+<button
+    onClick={() => setLogScale(prev => !prev)}
+    className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
+        logScale
+            ? 'bg-blue-600 text-white border-blue-600'
+            : 'bg-white dark:bg-neutral-700 text-gray-700 dark:text-white border-gray-200 dark:border-neutral-600'
+    }`}
+>
+    {logScale ? 'Log' : 'Linear'}
+</button>
                             <div className="flex gap-4 text-xs">
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div> Actual</span>
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 border border-orange-500 rounded-full"></div> Predicted</span>
@@ -313,11 +329,14 @@ export default function ForecastDashboard() {
                                             tick={{dy: 10}}
                                             interval="preserveStartEnd"
                                         />
-                                        <YAxis
-                                            stroke="#9ca3af"
-                                            fontSize={11}
-                                            label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
-                                        />
+                                  <YAxis
+                                        stroke="#9ca3af"
+                                        fontSize={11}
+                                        scale={logScale ? 'log' : 'auto'}
+                                        domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
+                                        tickFormatter={(v) => Number(v).toFixed(1)}
+                                        label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
+                                    />
                                         <Tooltip
                                             contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
                                             formatter={(value: any) => [`${Number(value).toFixed(2)} Mbps`, '']}
