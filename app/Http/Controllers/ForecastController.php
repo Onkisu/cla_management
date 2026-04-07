@@ -108,7 +108,7 @@ class ForecastController extends Controller
             WITH per_second AS (
                 SELECT
                     date_trunc('second', timestamp)  AS ts_sec,
-                    MAX(bytes_tx)                    AS bytes
+                    sum(bytes_tx)                    AS bytes
                 FROM traffic.flow_stats_1
                 WHERE timestamp >= ?
                   AND dpid      =  ?
