@@ -146,7 +146,7 @@ export default function ForecastDashboard() {
             const res = await axios.get('/api/forecast/data', { params: { range: timeRange, dpid: dpid } });
               setData((res.data.data || []).map((d: TrafficData) => ({
             ...d,
-            actual_mbps: d.actual_mbps <= 0 ? 0.001 : d.actual_mbps,
+            actual_mbps: d.actual_mbps <= 0 ? null : d.actual_mbps,
             predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
             })));
             setSystemEvents(res.data.system_events || []);
