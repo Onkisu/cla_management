@@ -323,6 +323,7 @@ class ForecastController extends Controller
         $logFile = storage_path('app/bursty_script.log');
         \Log::info('whoami: ' . shell_exec('whoami'));
         \Log::info('sudo test: ' . shell_exec('sudo -n python3.9 --version 2>&1'));
+        \Log::info('sudo -l: ' . shell_exec('sudo -n -l 2>&1'));
         $cmd     = "sudo -n python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid     = trim(shell_exec($cmd));
 
