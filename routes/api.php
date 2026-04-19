@@ -23,3 +23,8 @@ Route::get('/forecast/data', [ForecastController::class, 'getForecastData']);
 Route::post('/forecast/script/start', [ForecastController::class, 'startScript']);
 Route::post('/forecast/script/stop',  [ForecastController::class, 'stopScript']);
 Route::get('/forecast/script/status', [ForecastController::class, 'scriptStatus']);
+
+
+Route::post('/forecast/ai/start',  [ForecastController::class, 'startForecastScript']);
+Route::post('/forecast/ai/stop',   [ForecastController::class, 'stopForecastScript']);
+Route::get('/forecast/ai/status',  [ForecastController::class, 'forecastScriptStatus']);

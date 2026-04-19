@@ -290,6 +290,82 @@ class ForecastController extends Controller
         return response()->json(['running' => $alive]);
     }
 
+    public function startForecastScript()
+    {
+        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ai_service/forecast_1h.py';
+        $pidFile = storage_path('app/forecast_script.pid');
+        $logFile = storage_path('app/forecast_script.log');
+
+        // Kill existing process first (if any)
+        if (file_exists($pidFile)) {
+            $oldPid = trim(file_get_contents($pidFile));
+            if ($oldPid && is_numeric($oldPid)) {
+                shell_exec("kill {$oldPid} 2>/dev/null");
+            }
+            @unlink($pidFile);
+        }
+
+        $cmd = "PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $pid = trim(shell_exec($cmd));
+
+        if (!$pid || !is_numeric($pid)) {
+            return response()->json(['message' => 'Failed to start forecast script. PID: ' . $pid], 500);
+        }
+
+        file_put_contents($pidFile, $pid);
+
+        return response()->json([
+            'message' => 'forecast_1h.py started',
+            'pid'     => (int) $pid,
+        ]);
+    }
+
+    public function stopForecastScript()
+    {
+        $pidFile = storage_path('app/forecast_script.pid');
+
+        if (!file_exists($pidFile)) {
+            return response()->json(['message' => 'No running forecast script found.'], 404);
+        }
+
+        $pid = trim(file_get_contents($pidFile));
+
+        if (!$pid || !is_numeric($pid)) {
+            @unlink($pidFile);
+            return response()->json(['message' => 'Invalid PID stored.'], 500);
+        }
+
+        shell_exec("kill {$pid} 2>/dev/null");
+        shell_exec("pkill -P {$pid} 2>/dev/null");
+
+        @unlink($pidFile);
+
+        return response()->json(['message' => 'Forecast script stopped', 'pid' => (int) $pid]);
+    }
+
+    public function forecastScriptStatus()
+    {
+        $pidFile = storage_path('app/forecast_script.pid');
+
+        if (!file_exists($pidFile)) {
+            return response()->json(['running' => false]);
+        }
+
+        $pid = trim(file_get_contents($pidFile));
+
+        if (!$pid || !is_numeric($pid)) {
+            return response()->json(['running' => false]);
+        }
+
+        $alive = file_exists("/proc/{$pid}");
+
+        if (!$alive) {
+            @unlink($pidFile);
+        }
+
+        return response()->json(['running' => $alive]);
+    }
+
     public function storeIntent(Request $request)
     {
         return response()->json(['message' => 'Intent Simulated', 'count' => 1]);
@@ -311,46 +387,33 @@ class ForecastController extends Controller
         $pidFile = storage_path('app/bursty_script.pid');
         $logFile = storage_path('app/bursty_script.log');
 
-        // Kill existing process first
+        // Kill existing process first (if any)
         if (file_exists($pidFile)) {
             $oldPid = trim(file_get_contents($pidFile));
             if ($oldPid && is_numeric($oldPid)) {
-                shell_exec("sudo -n kill {$oldPid} 2>/dev/null");
+                shell_exec("echo 'Arius123.' | su -c 'kill {$oldPid}' root 2>/dev/null");
             }
             @unlink($pidFile);
         }
 
-        putenv('HOME=/home/takemi');
-        putenv('USER=takemi');
-        putenv('SUDO_ASKPASS=/bin/false');
-
+        // Start new process via su root (needed for mnexec inside script)
         $cmd = "echo 'Arius123.' | su -c 'PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo \$!' root";
-        $descriptors = [
-            0 => ['file', '/dev/null', 'r'],
-            1 => ['file', $logFile, 'w'],
-            2 => ['file', $logFile, 'w'],
-        ];
+        $pid = trim(shell_exec($cmd));
 
-        $env = [
-            'HOME' => '/home/takemi',
-            'USER' => 'takemi',
-            'PATH' => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
-        ];
+        // su outputs "Password: <pid>", strip the "Password: " prefix if present
+        $pid = preg_replace('/^Password:\s*/i', '', $pid);
+        $pid = trim($pid);
 
-        $process = proc_open($cmd, $descriptors, $pipes, null, $env);
-
-        if (!is_resource($process)) {
-            return response()->json(['message' => 'Failed to start process'], 500);
+        if (!$pid || !is_numeric($pid)) {
+            return response()->json(['message' => 'Failed to start script. PID: ' . $pid], 500);
         }
-
-        $status = proc_get_status($process);
-        $pid    = $status['pid'];
 
         file_put_contents($pidFile, $pid);
 
         return response()->json([
             'message' => "Script {$key}.py started",
-            'pid'     => $pid,
+            'pid'     => (int) $pid,
+            'script'  => $script,
         ]);
     }
 
@@ -373,8 +436,8 @@ class ForecastController extends Controller
         }
 
         // Kill the process and its children
-        shell_exec("sudo kill {$pid} 2>/dev/null");
-        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
+        shell_exec("echo 'Arius123.' | su -c 'kill {$pid}' root 2>/dev/null");
+        shell_exec("echo 'Arius123.' | su -c 'pkill -P {$pid}' root 2>/dev/null");
 
         @unlink($pidFile);
 

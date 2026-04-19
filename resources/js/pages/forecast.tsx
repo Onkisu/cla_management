@@ -100,6 +100,9 @@ export default function ForecastDashboard() {
     const [scriptRunning, setScriptRunning] = useState(false);
     const [scriptLoading, setScriptLoading] = useState(false);
     const [scriptError, setScriptError] = useState<string | null>(null);
+    const [forecastRunning, setForecastRunning] = useState(false);
+    const [forecastLoading, setForecastLoading] = useState(false);
+    const [forecastError, setForecastError] = useState<string | null>(null);
 
     const fetchData = async () => {
         try {
@@ -138,6 +141,24 @@ export default function ForecastDashboard() {
         }
     };
 
+    const handleForecastToggle = async () => {
+        setForecastLoading(true);
+        setForecastError(null);
+        try {
+            if (forecastRunning) {
+                await axios.post('/api/forecast/ai/stop');
+                setForecastRunning(false);
+            } else {
+                await axios.post('/api/forecast/ai/start');
+                setForecastRunning(true);
+            }
+        } catch (err: any) {
+            setForecastError(err?.response?.data?.message || 'Failed to control forecast script');
+        } finally {
+            setForecastLoading(false);
+        }
+    };
+
     useEffect(() => {
         fetchData();
         const interval = setInterval(fetchData, 5000);
@@ -153,7 +174,16 @@ export default function ForecastDashboard() {
                 // biarkan default false
             }
         };
+        const checkForecastStatus = async () => {
+            try {
+                const res = await axios.get('/api/forecast/ai/status');
+                setForecastRunning(res.data.running);
+            } catch {
+                // biarkan default false
+            }
+        };
         checkScriptStatus();
+        checkForecastStatus();
     }, []);
 
     const getStatusColor = (status: string) => {
@@ -240,6 +270,40 @@ export default function ForecastDashboard() {
                         {scriptError && (
                             <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg max-w-xs truncate">
                                 ⚠️ {scriptError}
+                            </div>
+                        )}
+
+                        {/* Forecast Script */}
+                        <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl px-3 py-2 shadow-sm">
+                            {/* Status dot */}
+                            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${forecastRunning ? 'bg-blue-500 animate-pulse' : 'bg-gray-300 dark:bg-neutral-600'}`}></span>
+
+                            <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">forecast_1h.py</span>
+
+                            {/* Run / Stop button */}
+                            <button
+                                onClick={handleForecastToggle}
+                                disabled={forecastLoading}
+                                className={`text-xs font-bold px-3 py-1 rounded-lg border transition-all duration-200 flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed ${
+                                    forecastRunning
+                                        ? 'bg-red-500 hover:bg-red-600 text-white border-red-600'
+                                        : 'bg-blue-500 hover:bg-blue-600 text-white border-blue-600'
+                                }`}
+                            >
+                                {forecastLoading ? (
+                                    <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                                ) : forecastRunning ? (
+                                    <>⏹ Stop</>
+                                ) : (
+                                    <>▶ Run</>
+                                )}
+                            </button>
+                        </div>
+
+                        {/* Forecast Error toast */}
+                        {forecastError && (
+                            <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg max-w-xs truncate">
+                                ⚠️ {forecastError}
                             </div>
                         )}
 
