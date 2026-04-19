@@ -20,3 +20,5 @@ Route::get('/filter-options', [FlowStatsController::class, 'getFilterOptions']);
 
 
 Route::get('/forecast/data', [ForecastController::class, 'getForecastData']);
+Route::post('/forecast/script/start', [ForecastController::class, 'startScript']);
+Route::post('/forecast/script/stop',  [ForecastController::class, 'stopScript']);
