@@ -144,6 +144,18 @@ export default function ForecastDashboard() {
         return () => clearInterval(interval);
     }, [timeRange, dpid]);
 
+    useEffect(() => {
+        const checkScriptStatus = async () => {
+            try {
+                const res = await axios.get('/api/forecast/script/status');
+                setScriptRunning(res.data.running);
+            } catch {
+                // biarkan default false
+            }
+        };
+        checkScriptStatus();
+    }, []);
+
     const getStatusColor = (status: string) => {
         if (status?.includes('CRITICAL')) return 'text-red-600 bg-red-100 border-red-200';
         if (status?.includes('WARNING')) return 'text-yellow-600 bg-yellow-100 border-yellow-200';

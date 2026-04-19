@@ -265,6 +265,31 @@ class ForecastController extends Controller
         ];
     }
 
+    public function scriptStatus()
+    {
+        $pidFile = storage_path('app/bursty_script.pid');
+
+        if (!file_exists($pidFile)) {
+            return response()->json(['running' => false]);
+        }
+
+        $pid = trim(file_get_contents($pidFile));
+
+        if (!$pid || !is_numeric($pid)) {
+            return response()->json(['running' => false]);
+        }
+
+        // Cek apakah process dengan PID ini masih hidup
+        $alive = file_exists("/proc/{$pid}");
+
+        // Kalau sudah mati, hapus PID file sekalian
+        if (!$alive) {
+            @unlink($pidFile);
+        }
+
+        return response()->json(['running' => $alive]);
+    }
+
     public function storeIntent(Request $request)
     {
         return response()->json(['message' => 'Intent Simulated', 'count' => 1]);
