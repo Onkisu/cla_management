@@ -320,7 +320,11 @@ class ForecastController extends Controller
             @unlink($pidFile);
         }
 
-        $cmd = "sudo -n /usr/bin/python3.9 {$script}";
+        putenv('HOME=/home/takemi');
+        putenv('USER=takemi');
+        putenv('SUDO_ASKPASS=/bin/false');
+
+        $cmd = "sudo -n -H python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $descriptors = [
             0 => ['file', '/dev/null', 'r'],
             1 => ['file', $logFile, 'w'],
