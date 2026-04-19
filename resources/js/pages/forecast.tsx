@@ -3,7 +3,7 @@ import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
 import {
-    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line,ReferenceLine
+    AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ReferenceLine
 } from 'recharts';
 
 // --- TIPE DATA ---
@@ -41,87 +41,45 @@ type ModelMetrics = {
 };
 
 
-// Tambahin di luar component ForecastDashboard, sebelum export default
 const ThresholdAnnotation = (props: any) => {
     const { viewBox } = props;
     if (!viewBox) return null;
 
-    // Fixed position di kanan atas chart area
     const labelX = viewBox.x + viewBox.width - 150;
     const labelY = viewBox.y + 30;
     const arrowStartX = labelX + 10;
     const arrowStartY = labelY + 30;
-    const arrowEndY = viewBox.y + viewBox.height * 0.73; // nunjuk ke threshold line (sekitar 0.2 di Y axis)
+    const arrowEndY = viewBox.y + viewBox.height * 0.73;
 
     return (
         <g>
-            {/* Background Box with shadow */}
             <defs>
                 <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
                     <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.2"/>
                 </filter>
             </defs>
 
-            <rect
-                x={labelX}
-                y={labelY}
-                width="95"
-                height="30"
-                fill="#10b981"
-                rx="6"
-                filter="url(#shadow)"
-            />
+            <rect x={labelX} y={labelY} width="95" height="30" fill="#10b981" rx="6" filter="url(#shadow)" />
 
-            {/* Icon */}
-            <text
-                x={labelX + 8}
-                y={labelY + 20}
-                fontSize="14"
-            >
-                ⚡
-            </text>
+            <text x={labelX + 8} y={labelY + 20} fontSize="14">⚡</text>
 
-            {/* Text */}
-            <text
-                x={labelX + 25}
-                y={labelY + 12}
-                fill="#ffffff"
-                fontSize="9"
-                fontWeight="600"
-            >
+            <text x={labelX + 25} y={labelY + 12} fill="#ffffff" fontSize="9" fontWeight="600">
                 Threshold
             </text>
-            <text
-                x={labelX + 25}
-                y={labelY + 23}
-                fill="#ffffff"
-                fontSize="10"
-                fontWeight="700"
-            >
+            <text x={labelX + 25} y={labelY + 23} fill="#ffffff" fontSize="10" fontWeight="700">
                 30 Mbps
             </text>
 
-            {/* Vertical Arrow */}
             <defs>
-                <marker
-                    id="arrowhead-down"
-                    markerWidth="8"
-                    markerHeight="8"
-                    refX="4"
-                    refY="7"
-                    orient="auto"
-                >
+                <marker id="arrowhead-down" markerWidth="8" markerHeight="8" refX="4" refY="7" orient="auto">
                     <polygon points="0 0, 8 0, 4 8" fill="#10b981" />
                 </marker>
             </defs>
 
             <line
-                x1={arrowStartX}
-                y1={arrowStartY}
-                x2={arrowStartX}
-                y2={arrowEndY}
-                stroke="#10b981"
-                strokeWidth="2.5"
+                x1={arrowStartX} y1={arrowStartY}
+                x2={arrowStartX} y2={arrowEndY}
+                stroke="#10b981" strokeWidth="2.5"
                 markerEnd="url(#arrowhead-down)"
             />
         </g>
@@ -143,15 +101,13 @@ export default function ForecastDashboard() {
     const [scriptLoading, setScriptLoading] = useState(false);
     const [scriptError, setScriptError] = useState<string | null>(null);
 
-
     const fetchData = async () => {
         try {
-            // const res = await axios.get('/api/forecast/data');
             const res = await axios.get('/api/forecast/data', { params: { range: timeRange, dpid: dpid } });
-              setData((res.data.data || []).map((d: TrafficData) => ({
-            ...d,
-            actual_mbps: d.actual_mbps <= 0 ? null : d.actual_mbps,
-            predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
+            setData((res.data.data || []).map((d: TrafficData) => ({
+                ...d,
+                actual_mbps: d.actual_mbps <= 0 ? null : d.actual_mbps,
+                predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
             })));
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
@@ -182,13 +138,11 @@ export default function ForecastDashboard() {
         }
     };
 
-
+    useEffect(() => {
         fetchData();
-        const interval = setInterval(fetchData, 5000); // Refresh every 5 seconds
+        const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
-    },[timeRange, dpid]);
-
-
+    }, [timeRange, dpid]);
 
     const getStatusColor = (status: string) => {
         if (status?.includes('CRITICAL')) return 'text-red-600 bg-red-100 border-red-200';
@@ -196,7 +150,6 @@ export default function ForecastDashboard() {
         return 'text-green-600 bg-green-100 border-green-200';
     };
 
-    // Format number with proper decimals
     const formatNumber = (num: number | undefined, decimals: number = 2) => {
         return num !== undefined && num !== null ? Number(num).toFixed(decimals) : '0';
     };
@@ -211,14 +164,9 @@ export default function ForecastDashboard() {
         });
     };
 
-
-      // Get event icon and color based on type
     const getEventStyle = (eventType: string) => {
-        if (eventType === 'REROUTE') {
-            return { icon: '⚡', color: 'text-red-600', bg: 'bg-red-50' };
-        } else if (eventType === 'REVERT') {
-            return { icon: '↩️', color: 'text-green-600', bg: 'bg-green-50' };
-        }
+        if (eventType === 'REROUTE') return { icon: '⚡', color: 'text-red-600', bg: 'bg-red-50' };
+        if (eventType === 'REVERT')  return { icon: '↩️', color: 'text-green-600', bg: 'bg-green-50' };
         return { icon: '👁️', color: 'text-blue-600', bg: 'bg-blue-50' };
     };
 
@@ -238,13 +186,14 @@ export default function ForecastDashboard() {
                             Closed-Loop Automation • XGBoost Engine
                         </p>
                     </div>
+
                     <div className="flex items-center gap-3 flex-wrap justify-end">
                         {/* Script Injector */}
                         <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl px-3 py-2 shadow-sm">
-                            {/* Status indicator dot */}
+                            {/* Status dot */}
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scriptRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-300 dark:bg-neutral-600'}`}></span>
 
-                            {/* Script selector dropdown */}
+                            {/* Script selector */}
                             <select
                                 value={selectedScript}
                                 onChange={(e) => setSelectedScript(e.target.value as 'bursty' | 'bursty_2')}
@@ -339,45 +288,48 @@ export default function ForecastDashboard() {
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Real-time Traffic Forecasting</h3>
 
-                                        <select
-                value={dpid}
-                onChange={(e) => setDpid(Number(e.target.value))}
-                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
-            >
-                <option value={1}>DPID 1</option>
-                <option value={2}>DPID 2</option>
-                <option value={3}>DPID 3</option>
-                <option value={4}>DPID 4</option>
-                <option value={5}>DPID 5</option>
-            </select>
                             <select
-    value={timeRange}
-    onChange={(e) => setTimeRange(e.target.value)}
-    className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
->
-    <option value="10s">Last 10 sec</option>
-    <option value="1m">Last 1 min</option>
-    <option value="5m">Last 5 min</option>
-    <option value="15m">Last 15 min</option>
-    <option value="30m">Last 30 min</option>
-    <option value="1h">Last 1 hour</option>
-</select>
+                                value={dpid}
+                                onChange={(e) => setDpid(Number(e.target.value))}
+                                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
+                            >
+                                <option value={1}>DPID 1</option>
+                                <option value={2}>DPID 2</option>
+                                <option value={3}>DPID 3</option>
+                                <option value={4}>DPID 4</option>
+                                <option value={5}>DPID 5</option>
+                            </select>
 
-<button
-    onClick={() => setLogScale(prev => !prev)}
-    className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
-        logScale
-            ? 'bg-blue-600 text-white border-blue-600'
-            : 'bg-white dark:bg-neutral-700 text-gray-700 dark:text-white border-gray-200 dark:border-neutral-600'
-    }`}
->
-    {logScale ? 'Log' : 'Linear'}
-</button>
+                            <select
+                                value={timeRange}
+                                onChange={(e) => setTimeRange(e.target.value)}
+                                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
+                            >
+                                <option value="10s">Last 10 sec</option>
+                                <option value="1m">Last 1 min</option>
+                                <option value="5m">Last 5 min</option>
+                                <option value="15m">Last 15 min</option>
+                                <option value="30m">Last 30 min</option>
+                                <option value="1h">Last 1 hour</option>
+                            </select>
+
+                            <button
+                                onClick={() => setLogScale(prev => !prev)}
+                                className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
+                                    logScale
+                                        ? 'bg-blue-600 text-white border-blue-600'
+                                        : 'bg-white dark:bg-neutral-700 text-gray-700 dark:text-white border-gray-200 dark:border-neutral-600'
+                                }`}
+                            >
+                                {logScale ? 'Log' : 'Linear'}
+                            </button>
+
                             <div className="flex gap-4 text-xs">
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div> Actual</span>
                                 <span className="flex items-center gap-2"><div className="w-2 h-2 border border-orange-500 rounded-full"></div> Predicted</span>
                             </div>
                         </div>
+
                         <div className="flex-1 w-full min-h-0">
                             {data.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
@@ -393,17 +345,17 @@ export default function ForecastDashboard() {
                                             dataKey="run_time"
                                             stroke="#9ca3af"
                                             fontSize={11}
-                                            tick={{dy: 10}}
+                                            tick={{ dy: 10 }}
                                             interval="preserveStartEnd"
                                         />
-                                  <YAxis
-                                        stroke="#9ca3af"
-                                        fontSize={11}
-                                        scale={logScale ? 'log' : 'auto'}
-                                        domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
-                                        tickFormatter={(v) => Number(v).toFixed(1)}
-                                        label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
-                                    />
+                                        <YAxis
+                                            stroke="#9ca3af"
+                                            fontSize={11}
+                                            scale={logScale ? 'log' : 'auto'}
+                                            domain={logScale ? ['auto', 'auto'] : [0, 'auto']}
+                                            tickFormatter={(v) => Number(v).toFixed(1)}
+                                            label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
+                                        />
                                         <Tooltip
                                             contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
                                             formatter={(value: any) => [`${Number(value).toFixed(2)} Mbps`, '']}
@@ -424,14 +376,13 @@ export default function ForecastDashboard() {
                                             dot={false}
                                             name="Forecast"
                                         />
-                                        {/* Threshold Line */}
-                       <ReferenceLine
-            y={30}
-            stroke="#10b981"
-            strokeDasharray="8 4"
-            strokeWidth={2}
-            label={<ThresholdAnnotation />}
-        />
+                                        <ReferenceLine
+                                            y={30}
+                                            stroke="#10b981"
+                                            strokeDasharray="8 4"
+                                            strokeWidth={2}
+                                            label={<ThresholdAnnotation />}
+                                        />
                                     </AreaChart>
                                 </ResponsiveContainer>
                             ) : (
@@ -449,7 +400,7 @@ export default function ForecastDashboard() {
                         <div className="flex-1 bg-white dark:bg-neutral-800 p-5 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 flex flex-col min-h-0 overflow-hidden">
                             <h3 className="text-sm font-bold text-gray-700 dark:text-gray-200 mb-3 border-b pb-2">📋 Automation Logs</h3>
                             <div className="overflow-y-auto flex-1 custom-scrollbar pr-2">
-                              {systemEvents.length > 0 ? (
+                                {systemEvents.length > 0 ? (
                                     <div className="space-y-2">
                                         {systemEvents.map((event) => {
                                             const style = getEventStyle(event.event_type);
@@ -489,9 +440,8 @@ export default function ForecastDashboard() {
                             </div>
                         </div>
 
-                        {/* 2. SYSTEM RELIABILITY METRICS (TTR) */}
+                        {/* 2. SYSTEM RELIABILITY METRICS */}
                         <div className="bg-slate-900 text-white p-5 rounded-xl shadow-lg border border-slate-700 relative overflow-hidden">
-                            {/* Background deco */}
                             <div className="absolute top-0 right-0 w-24 h-24 bg-blue-500/10 rounded-full blur-2xl -mr-10 -mt-10 pointer-events-none"></div>
 
                             <h3 className="text-sm font-bold text-slate-100 mb-4 flex items-center gap-2 relative z-10">
@@ -499,8 +449,6 @@ export default function ForecastDashboard() {
                             </h3>
 
                             <div className="space-y-5 relative z-10">
-
-
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="text-xs text-slate-400 mb-1">Time to Reroute</div>
@@ -526,29 +474,17 @@ export default function ForecastDashboard() {
                                     ></div>
                                 </div>
 
-                                {/* Accuracy Badge */}
-                                {/* <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
-                                    <span className="text-xs text-slate-400">MAPE</span>
-                                    <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
-                                        {formatNumber(modelMetrics?.mape, 1)}%
-                                    </span>
-                                </div> */}
-
-
                                 <div className="mt-2 pt-3 border-t border-slate-700/50 flex justify-between items-center">
                                     <span className="text-xs text-slate-400">RMSE</span>
                                     <span className="bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded text-xs font-bold border border-purple-500/30">
                                         {formatNumber(modelMetrics?.rmse, 2)} Mbps
                                     </span>
                                 </div>
-
-
                             </div>
                         </div>
 
                     </div>
                 </div>
-
 
             </div>
         </AppLayout>
