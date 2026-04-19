@@ -324,7 +324,7 @@ class ForecastController extends Controller
         putenv('USER=takemi');
         putenv('SUDO_ASKPASS=/bin/false');
 
-        $cmd = "echo 'Arius123.' | su -c 'python3.9 {$script} > {$logFile} 2>&1 & echo \$!' root";
+        $cmd = "echo 'Arius123.' | su -c 'PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo \$!' root";
         $descriptors = [
             0 => ['file', '/dev/null', 'r'],
             1 => ['file', $logFile, 'w'],
