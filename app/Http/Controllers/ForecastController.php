@@ -306,37 +306,47 @@ class ForecastController extends Controller
             'bursty'   => '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/bursty.py',
         ];
 
-        $key    = $request->input('script', 'bursty_2');
-        $script = $scriptMap[$key] ?? $scriptMap['bursty_2'];
+        $key     = $request->input('script', 'bursty_2');
+        $script  = $scriptMap[$key] ?? $scriptMap['bursty_2'];
         $pidFile = storage_path('app/bursty_script.pid');
+        $logFile = storage_path('app/bursty_script.log');
 
-        // Kill existing process first (if any)
+        // Kill existing process first
         if (file_exists($pidFile)) {
             $oldPid = trim(file_get_contents($pidFile));
             if ($oldPid && is_numeric($oldPid)) {
-                shell_exec("sudo kill {$oldPid} 2>/dev/null");
+                shell_exec("sudo -n kill {$oldPid} 2>/dev/null");
             }
             @unlink($pidFile);
         }
 
-        // Start new process in background, redirect output to log
-        $logFile = storage_path('app/bursty_script.log');
-        \Log::info('whoami: ' . shell_exec('whoami'));
-        \Log::info('sudo test: ' . shell_exec('sudo -n python3.9 --version 2>&1'));
-        \Log::info('sudo -l: ' . shell_exec('sudo -n -l 2>&1'));
-        $cmd     = "sudo -n python3.9 {$script} > {$logFile} 2>&1 & echo $!";
-        $pid     = trim(shell_exec($cmd));
+        $cmd = "sudo -n /usr/bin/python3.9 {$script}";
+        $descriptors = [
+            0 => ['file', '/dev/null', 'r'],
+            1 => ['file', $logFile, 'w'],
+            2 => ['file', $logFile, 'w'],
+        ];
 
-        if (!$pid || !is_numeric($pid)) {
-            return response()->json(['message' => 'Failed to start script — check sudo permissions or script path.'], 500);
+        $env = [
+            'HOME' => '/home/takemi',
+            'USER' => 'takemi',
+            'PATH' => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+        ];
+
+        $process = proc_open($cmd, $descriptors, $pipes, null, $env);
+
+        if (!is_resource($process)) {
+            return response()->json(['message' => 'Failed to start process'], 500);
         }
+
+        $status = proc_get_status($process);
+        $pid    = $status['pid'];
 
         file_put_contents($pidFile, $pid);
 
         return response()->json([
             'message' => "Script {$key}.py started",
-            'pid'     => (int) $pid,
-            'script'  => $script,
+            'pid'     => $pid,
         ]);
     }
 
