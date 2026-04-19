@@ -269,4 +269,73 @@ class ForecastController extends Controller
     {
         return response()->json(['message' => 'Intent Simulated', 'count' => 1]);
     }
+
+    /**
+     * Start the selected bursty script as a background process.
+     * Stores the PID in storage so it can be killed later.
+     */
+    public function startScript(Request $request)
+    {
+        $scriptMap = [
+            'bursty_2' => '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/bursty_2.py',
+            'bursty'   => '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/bursty.py',
+        ];
+
+        $key    = $request->input('script', 'bursty_2');
+        $script = $scriptMap[$key] ?? $scriptMap['bursty_2'];
+        $pidFile = storage_path('app/bursty_script.pid');
+
+        // Kill existing process first (if any)
+        if (file_exists($pidFile)) {
+            $oldPid = trim(file_get_contents($pidFile));
+            if ($oldPid && is_numeric($oldPid)) {
+                shell_exec("sudo kill {$oldPid} 2>/dev/null");
+            }
+            @unlink($pidFile);
+        }
+
+        // Start new process in background, redirect output to log
+        $logFile = storage_path('app/bursty_script.log');
+        $cmd     = "sudo python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $pid     = trim(shell_exec($cmd));
+
+        if (!$pid || !is_numeric($pid)) {
+            return response()->json(['message' => 'Failed to start script — check sudo permissions or script path.'], 500);
+        }
+
+        file_put_contents($pidFile, $pid);
+
+        return response()->json([
+            'message' => "Script {$key}.py started",
+            'pid'     => (int) $pid,
+            'script'  => $script,
+        ]);
+    }
+
+    /**
+     * Stop the running bursty script by killing its stored PID.
+     */
+    public function stopScript()
+    {
+        $pidFile = storage_path('app/bursty_script.pid');
+
+        if (!file_exists($pidFile)) {
+            return response()->json(['message' => 'No running script found.'], 404);
+        }
+
+        $pid = trim(file_get_contents($pidFile));
+
+        if (!$pid || !is_numeric($pid)) {
+            @unlink($pidFile);
+            return response()->json(['message' => 'Invalid PID stored.'], 500);
+        }
+
+        // Kill the process and its children
+        shell_exec("sudo kill {$pid} 2>/dev/null");
+        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
+
+        @unlink($pidFile);
+
+        return response()->json(['message' => 'Script stopped', 'pid' => (int) $pid]);
+    }
 }
