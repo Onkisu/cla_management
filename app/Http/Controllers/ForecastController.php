@@ -321,7 +321,7 @@ class ForecastController extends Controller
 
         // Start new process in background, redirect output to log
         $logFile = storage_path('app/bursty_script.log');
-        $cmd     = "sudo python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $cmd     = "sudo -n python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid     = trim(shell_exec($cmd));
 
         if (!$pid || !is_numeric($pid)) {
