@@ -292,7 +292,7 @@ class ForecastController extends Controller
 
     public function startForecastScript()
     {
-        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ai_service/forecast_1h.py';
+        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/forecast_3.py';
         $pidFile = storage_path('app/forecast_script.pid');
         $logFile = storage_path('app/forecast_script.log');
 
