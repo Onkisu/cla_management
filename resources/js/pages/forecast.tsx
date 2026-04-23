@@ -67,7 +67,7 @@ const ThresholdAnnotation = (props: any) => {
                 Threshold
             </text>
             <text x={labelX + 25} y={labelY + 23} fill="#ffffff" fontSize="10" fontWeight="700">
-                30 Mbps
+                15 Mbps
             </text>
 
             <defs>
@@ -453,7 +453,7 @@ export default function ForecastDashboard() {
                                             name="Forecast"
                                         />
                                         <ReferenceLine
-                                            y={30}
+                                            y={15}
                                             stroke="#10b981"
                                             strokeDasharray="8 4"
                                             strokeWidth={2}
