@@ -374,6 +374,7 @@ export default function ForecastDashboard() {
                                 <option value={3}>DPID 3</option>
                                 <option value={4}>DPID 4</option>
                                 <option value={5}>DPID 5</option>
+                                <option value={6}>DPID 6</option>
                             </select>
 
                             <select
