@@ -247,6 +247,7 @@ class ForecastController extends Controller
     {
         $totalMape         = 0;
         $totalSquaredError = 0;
+        $totalAbsError     = 0;
         $validCount        = 0;
 
         foreach ($data as $row) {
@@ -255,6 +256,7 @@ class ForecastController extends Controller
             if ($actual > 0 && $predicted > 0) {
                 $totalMape         += abs($actual - $predicted) / $actual * 100;
                 $totalSquaredError += pow($actual - $predicted, 2);
+                $totalAbsError     += abs($actual - $predicted);
                 $validCount++;
             }
         }
@@ -262,6 +264,7 @@ class ForecastController extends Controller
         return [
             'mape' => $validCount > 0 ? round($totalMape / $validCount, 2) : 0,
             'rmse' => $validCount > 0 ? round(sqrt($totalSquaredError / $validCount), 4) : 0,
+            'mae'  => $validCount > 0 ? round($totalAbsError / $validCount, 4) : 0,
         ];
     }
 
