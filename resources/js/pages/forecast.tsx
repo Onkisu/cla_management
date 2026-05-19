@@ -243,8 +243,8 @@ export default function ForecastDashboard() {
                                 disabled={scriptRunning || scriptLoading}
                                 className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <option value="bursty_2">bursty_2.py</option>
-                                <option value="bursty">bursty.py</option>
+                                <option value="bursty_2">congestion type 1</option>
+                                <option value="bursty">congestion type 2</option>
                             </select>
 
                             {/* Run / Stop button */}
@@ -279,7 +279,7 @@ export default function ForecastDashboard() {
                             {/* Status dot */}
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${forecastRunning ? 'bg-blue-500 animate-pulse' : 'bg-gray-300 dark:bg-neutral-600'}`}></span>
 
-                            <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">forecast_1h.py</span>
+                            <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">forecast engine</span>
 
                             {/* Run / Stop button */}
                             <button
@@ -363,7 +363,7 @@ export default function ForecastDashboard() {
                     {/* --- LEFT: TRAFFIC CHART (2/3) --- */}
                     <div className="lg:col-span-2 bg-white dark:bg-neutral-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 h-[500px] flex flex-col">
                         <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Real-time Traffic Forecasting</h3>
+                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Traffic Forecasting</h3>
 
                             <select
                                 value={dpid}
