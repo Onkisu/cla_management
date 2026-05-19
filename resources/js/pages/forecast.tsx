@@ -39,6 +39,7 @@ type ModelMetrics = {
     mape: number;
     rmse: number;
     mae: number;
+    r_squared: number;
 };
 
 
@@ -558,12 +559,18 @@ export default function ForecastDashboard() {
                                         {formatNumber(modelMetrics?.rmse, 2)} Mbps
                                     </span>
                                 </div>
-                                <div className="pt-2 flex justify-between items-center">
-                                    <span className="text-xs text-slate-400">MAE</span>
-                                    <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-xs font-bold border border-cyan-500/30">
-                                        {formatNumber(modelMetrics?.mae, 2)} Mbps
-                                    </span>
-                                </div>
+                                    <div className="pt-2 flex justify-between items-center">
+                                        <span className="text-xs text-slate-400">MAE</span>
+                                        <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-xs font-bold border border-cyan-500/30">
+                                            {formatNumber(modelMetrics?.mae, 2)} Mbps
+                                        </span>
+                                    </div>
+                                    <div className="pt-2 flex justify-between items-center">
+                                        <span className="text-xs text-slate-400">R²</span>
+                                        <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded text-xs font-bold border border-green-500/30">
+                                            {formatNumber(modelMetrics?.r_squared, 4)}
+                                        </span>
+                                    </div>
                             </div>
                         </div>
 

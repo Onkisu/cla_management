@@ -249,11 +249,16 @@ class ForecastController extends Controller
         $totalSquaredError = 0;
         $totalAbsError     = 0;
         $validCount        = 0;
+        $totalActual = 0;
+        $countForMean = 0;
 
         foreach ($data as $row) {
             $actual    = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
+            
             if ($actual > 0 && $predicted > 0) {
+                $totalActual += $actual;
+                $countForMean++;
                 $totalMape         += abs($actual - $predicted) / $actual * 100;
                 $totalSquaredError += pow($actual - $predicted, 2);
                 $totalAbsError     += abs($actual - $predicted);
@@ -261,10 +266,21 @@ class ForecastController extends Controller
             }
         }
 
+        $meanActual = $countForMean > 0 ? $totalActual / $countForMean : 0;
+        $ssTot = 0;
+        $ssRes = 0;
+        foreach ($data as $row) {
+            if ($row['actual_mbps'] > 0 && $row['predicted_mbps'] > 0) {
+                $ssTot += pow($row['actual_mbps'] - $meanActual, 2);
+                $ssRes += pow($row['actual_mbps'] - $row['predicted_mbps'], 2);
+            }
+        }
+        $rSquared = $ssTot > 0 ? round(1 - ($ssRes / $ssTot), 4) : 0;
         return [
             'mape' => $validCount > 0 ? round($totalMape / $validCount, 2) : 0,
             'rmse' => $validCount > 0 ? round(sqrt($totalSquaredError / $validCount), 4) : 0,
             'mae'  => $validCount > 0 ? round($totalAbsError / $validCount, 4) : 0,
+            'r_squared' => $rSquared,
         ];
     }
 
