@@ -324,7 +324,7 @@ class ForecastController extends Controller
             @unlink($pidFile);
         }
 
-        $cmd = "PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $cmd = "sudo PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid = trim(shell_exec($cmd));
 
         if (!$pid || !is_numeric($pid)) {
@@ -354,8 +354,8 @@ class ForecastController extends Controller
             return response()->json(['message' => 'Invalid PID stored.'], 500);
         }
 
-        shell_exec("kill {$pid} 2>/dev/null");
-        shell_exec("pkill -P {$pid} 2>/dev/null");
+        shell_exec("sudo kill {$pid} 2>/dev/null");
+        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
 
         @unlink($pidFile);
 
@@ -410,18 +410,18 @@ class ForecastController extends Controller
         if (file_exists($pidFile)) {
             $oldPid = trim(file_get_contents($pidFile));
             if ($oldPid && is_numeric($oldPid)) {
-                shell_exec("echo 'Arius123.' | su -c 'kill {$oldPid}' root 2>/dev/null");
+                shell_exec("sudo kill {$oldPid} 2>/dev/null");
             }
             @unlink($pidFile);
         }
 
         // Start new process via su root (needed for mnexec inside script)
-        $cmd = "echo 'Arius123.' | su -c 'PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo \$!' root";
+        $cmd = "sudo PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid = trim(shell_exec($cmd));
 
         // su outputs "Password: <pid>", strip the "Password: " prefix if present
-        $pid = preg_replace('/^Password:\s*/i', '', $pid);
-        $pid = trim($pid);
+        //$pid = preg_replace('/^Password:\s*/i', '', $pid);
+        //$pid = trim($pid);
 
         if (!$pid || !is_numeric($pid)) {
             return response()->json(['message' => 'Failed to start script. PID: ' . $pid], 500);
@@ -455,8 +455,8 @@ class ForecastController extends Controller
         }
 
         // Kill the process and its children
-        shell_exec("echo 'Arius123.' | su -c 'kill {$pid}' root 2>/dev/null");
-        shell_exec("echo 'Arius123.' | su -c 'pkill -P {$pid}' root 2>/dev/null");
+        shell_exec("sudo kill {$pid} 2>/dev/null");
+        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
 
         @unlink($pidFile);
 
