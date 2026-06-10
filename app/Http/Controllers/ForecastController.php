@@ -324,7 +324,7 @@ class ForecastController extends Controller
             @unlink($pidFile);
         }
 
-        $cmd = "sudo PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $cmd = "sudo -n PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid = trim(shell_exec($cmd));
 
         if (!$pid || !is_numeric($pid)) {
@@ -354,8 +354,8 @@ class ForecastController extends Controller
             return response()->json(['message' => 'Invalid PID stored.'], 500);
         }
 
-        shell_exec("sudo kill {$pid} 2>/dev/null");
-        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
+        shell_exec("sudo -n kill {$pid} 2>/dev/null");
+        shell_exec("sudo -n pkill -P {$pid} 2>/dev/null");
 
         @unlink($pidFile);
 
@@ -410,13 +410,13 @@ class ForecastController extends Controller
         if (file_exists($pidFile)) {
             $oldPid = trim(file_get_contents($pidFile));
             if ($oldPid && is_numeric($oldPid)) {
-                shell_exec("sudo kill {$oldPid} 2>/dev/null");
+                shell_exec("sudo -n kill {$oldPid} 2>/dev/null");
             }
             @unlink($pidFile);
         }
 
         // Start new process via su root (needed for mnexec inside script)
-        $cmd = "sudo PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $cmd = "sudo -n PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid = trim(shell_exec($cmd));
 
         // su outputs "Password: <pid>", strip the "Password: " prefix if present
@@ -455,8 +455,8 @@ class ForecastController extends Controller
         }
 
         // Kill the process and its children
-        shell_exec("sudo kill {$pid} 2>/dev/null");
-        shell_exec("sudo pkill -P {$pid} 2>/dev/null");
+        shell_exec("sudo -n kill {$pid} 2>/dev/null");
+        shell_exec("sudo -n pkill -P {$pid} 2>/dev/null");
 
         @unlink($pidFile);
 
