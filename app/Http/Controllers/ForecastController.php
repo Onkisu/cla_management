@@ -324,7 +324,7 @@ class ForecastController extends Controller
             @unlink($pidFile);
         }
 
-        $cmd = "sudo -n PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
+        $cmd = "PYTHONIOENCODING=utf-8 python3.9 {$script} > {$logFile} 2>&1 & echo $!";
         $pid = trim(shell_exec($cmd));
 
         if (!$pid || !is_numeric($pid)) {
@@ -354,8 +354,8 @@ class ForecastController extends Controller
             return response()->json(['message' => 'Invalid PID stored.'], 500);
         }
 
-        shell_exec("sudo -n kill {$pid} 2>/dev/null");
-        shell_exec("sudo -n pkill -P {$pid} 2>/dev/null");
+        shell_exec("kill {$pid} 2>/dev/null");
+        shell_exec("pkill -P {$pid} 2>/dev/null");
 
         @unlink($pidFile);
 
