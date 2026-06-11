@@ -22,12 +22,12 @@ class ForecastController extends Controller
     private function resolveTimeRange(string $range): Carbon
     {
         return match ($range) {
-            '10s' => Carbon::now()->subSeconds(10),
-            '1m'  => Carbon::now()->subMinute(),
-            '5m'  => Carbon::now()->subMinutes(5),
-            '15m' => Carbon::now()->subMinutes(15),
-            '30m' => Carbon::now()->subMinutes(30),
-            default => Carbon::now()->subHour(),
+            '10s' => Carbon::now('Asia/Jakarta')->subSeconds(10),
+            '1m'  => Carbon::now('Asia/Jakarta')->subMinute(),
+            '5m'  => Carbon::now('Asia/Jakarta')->subMinutes(5),
+            '15m' => Carbon::now('Asia/Jakarta')->subMinutes(15),
+            '30m' => Carbon::now('Asia/Jakarta')->subMinutes(30),
+            default => Carbon::now('Asia/Jakarta')->subHour(),
         };
     }
 
@@ -255,7 +255,7 @@ class ForecastController extends Controller
         foreach ($data as $row) {
             $actual    = $row['actual_mbps'];
             $predicted = $row['predicted_mbps'];
-            
+
             if ($actual > 0 && $predicted > 0) {
                 $totalActual += $actual;
                 $countForMean++;
