@@ -311,7 +311,7 @@ class ForecastController extends Controller
 
     public function startForecastScript()
     {
-        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/forecast_3.py';
+        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/forecast_4.py';
         $pidFile = storage_path('app/forecast_script.pid');
         $logFile = storage_path('app/forecast_script.log');
 
@@ -334,7 +334,7 @@ class ForecastController extends Controller
         file_put_contents($pidFile, $pid);
 
         return response()->json([
-            'message' => 'forecast_1h.py started',
+            'message' => 'forecast_4.py started',
             'pid'     => (int) $pid,
         ]);
     }
