@@ -298,7 +298,7 @@ class ForecastController extends Controller
             return response()->json(['running' => false]);
         }
 
-        // Cek apakah process dengan PID ini masih hidup
+        // Cek apakah process dengan PID ini masih hidupp
         $alive = file_exists("/proc/{$pid}");
 
         // Kalau sudah mati, hapus PID file sekalian
