@@ -311,7 +311,7 @@ class ForecastController extends Controller
 
     public function startForecastScript()
     {
-        $script  = '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/forecast_4.py';
+        $script  = '/home/takemi/cla_sdn/ryu/ryu/app/files/forecast_4.py';
         $pidFile = storage_path('app/forecast_script.pid');
         $logFile = storage_path('app/forecast_script.log');
 
@@ -397,8 +397,8 @@ class ForecastController extends Controller
     public function startScript(Request $request)
     {
         $scriptMap = [
-            'bursty_2' => '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/bursty_2.py',
-            'bursty'   => '/home/takemi/cla_sdn/cla_sdn/ryu/ryu/app/files/bursty.py',
+            'bursty_2' => '/home/takemi/cla_sdn/ryu/ryu/app/files/bursty_2.py',
+            'bursty'   => '/home/takemi/cla_sdn/ryu/ryu/app/files/bursty.py',
         ];
 
         $key     = $request->input('script', 'bursty_2');
