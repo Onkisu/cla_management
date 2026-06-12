@@ -244,8 +244,8 @@ export default function ForecastDashboard() {
                                 disabled={scriptRunning || scriptLoading}
                                 className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <option value="bursty_2">congestion type 1</option>
-                                <option value="bursty">congestion type 2</option>
+                                <option value="bursty">congestion type 1</option>
+                                <option value="bursty_2">congestion type 2</option>
                             </select>
 
                             {/* Run / Stop button */}
