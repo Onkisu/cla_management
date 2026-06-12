@@ -98,7 +98,7 @@ export default function ForecastDashboard() {
     const [timeRange, setTimeRange] = useState<string>('1h');
     const [dpid, setDpid] = useState<number>(5);
     const [logScale, setLogScale] = useState(false);
-    const [selectedScript, setSelectedScript] = useState<'bursty' | 'bursty_2'>('bursty');
+    const [selectedScript, setSelectedScript] = useState<'bursty_1_test' | 'bursty_2_test'>('bursty_1_test');
     const [scriptRunning, setScriptRunning] = useState(false);
     const [scriptLoading, setScriptLoading] = useState(false);
     const [scriptError, setScriptError] = useState<string | null>(null);
@@ -240,12 +240,12 @@ export default function ForecastDashboard() {
                             {/* Script selector */}
                             <select
                                 value={selectedScript}
-                                onChange={(e) => setSelectedScript(e.target.value as 'bursty' | 'bursty_2')}
+                                onChange={(e) => setSelectedScript(e.target.value as 'bursty_1_test' | 'bursty_2_test')}
                                 disabled={scriptRunning || scriptLoading}
                                 className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                <option value="bursty">congestion type 1</option>
-                                <option value="bursty_2">congestion type 2</option>
+                                <option value="bursty_1_test">congestion type 1</option>
+                                <option value="bursty_2_test">congestion type 2</option>
                             </select>
 
                             {/* Run / Stop button */}
