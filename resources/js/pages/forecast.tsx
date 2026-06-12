@@ -6,7 +6,7 @@ import {
     AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ReferenceLine
 } from 'recharts';
 
-// --- TIPE DATA ---
+// --- TIPE DATA -----
 type TrafficData = {
     id: number;
     run_time: string;
