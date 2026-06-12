@@ -98,7 +98,7 @@ export default function ForecastDashboard() {
     const [timeRange, setTimeRange] = useState<string>('1h');
     const [dpid, setDpid] = useState<number>(5);
     const [logScale, setLogScale] = useState(false);
-    const [selectedScript, setSelectedScript] = useState<'bursty' | 'bursty_2'>('bursty_2');
+    const [selectedScript, setSelectedScript] = useState<'bursty' | 'bursty_2'>('bursty');
     const [scriptRunning, setScriptRunning] = useState(false);
     const [scriptLoading, setScriptLoading] = useState(false);
     const [scriptError, setScriptError] = useState<string | null>(null);
