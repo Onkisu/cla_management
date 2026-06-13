@@ -275,7 +275,7 @@ class ForecastController extends Controller
                 $ssRes += pow($row['actual_mbps'] - $row['predicted_mbps'], 2);
             }
         }
-        $rSquared = $ssTot > 0 ? round(1 - ($ssRes / $ssTot), 4) : 0;
+        $rSquared = $ssTot > 0 ? max(0, round(1 - ($ssRes / $ssTot), 4)) : 0;
         return [
             'mape' => $validCount > 0 ? round($totalMape / $validCount, 2) : 0,
             'rmse' => $validCount > 0 ? round(sqrt($totalSquaredError / $validCount), 4) : 0,
