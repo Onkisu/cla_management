@@ -401,8 +401,8 @@ class ForecastController extends Controller
             'bursty'   => '/home/takemi/cla_sdn/ryu/ryu/app/files/bursty.py',
         ];
 
-        $key     = $request->input('script', 'bursty_2');
-        $script  = $scriptMap[$key] ?? $scriptMap['bursty_2'];
+        $key     = $request->input('script', 'bursty');
+        $script  = $scriptMap[$key] ?? $scriptMap['bursty'];
         $pidFile = storage_path('app/bursty_script.pid');
         $logFile = storage_path('app/bursty_script.log');
 
