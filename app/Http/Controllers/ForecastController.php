@@ -51,8 +51,8 @@ class ForecastController extends Controller
 
         // 1. Latest Predicted Load
         $latestPrediction = DB::table('forecast_1h')
-            ->selectRaw('y_pred / 1000000.0 as y_pred, ts_created as ts')
-            ->orderBy('ts_created', 'desc')
+            ->selectRaw('y_pred / 1000000.0 as y_pred, ts as ts')
+            ->orderBy('ts', 'desc')
             ->first();
 
         if ($latestPrediction) {
@@ -83,14 +83,14 @@ class ForecastController extends Controller
         $rerouteEvents = DB::select("
             SELECT
                 se.timestamp as event_ts,
-                f.ts_created as prediction_ts,
-                EXTRACT(EPOCH FROM (se.timestamp - f.ts_created)) * 1000 as time_diff_ms
+                f.ts as prediction_ts,
+                EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
             FROM traffic.system_events se
             LEFT JOIN LATERAL (
-                SELECT ts_created
+                SELECT ts
                 FROM forecast_1h
-                WHERE ts_created <= se.timestamp
-                ORDER BY ts_created DESC
+                WHERE ts <= se.timestamp
+                ORDER BY ts DESC
                 LIMIT 1
             ) f ON true
             WHERE se.event_type = 'REROUTE'
@@ -134,9 +134,9 @@ class ForecastController extends Controller
 
         // 4. Predicted Traffic — per 5 detik dari DB, akan di-bucket ke 10 detik di PHP
         $predictedTraffic = DB::table('forecast_1h')
-            ->selectRaw('ts_created as ts, y_pred / 1000000.0 as predicted_mbps')
-            ->where('ts_created', '>=', $fromTime)
-            ->orderBy('ts_created', 'asc')
+            ->selectRaw('ts as ts, y_pred / 1000000.0 as predicted_mbps')
+            ->where('ts', '>=', $fromTime)
+            ->orderBy('ts', 'asc')
             ->get();
 
         // 5. Build predictedMap — bucket ke 10 detik, AVG kalau ada >1 prediksi per bucket
