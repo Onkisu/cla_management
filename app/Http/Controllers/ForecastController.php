@@ -87,10 +87,10 @@ class ForecastController extends Controller
                 EXTRACT(EPOCH FROM (se.timestamp - f.ts)) * 1000 as time_diff_ms
             FROM traffic.system_events se
             LEFT JOIN LATERAL (
-                SELECT ts
+                SELECT ts_created AS ts
                 FROM forecast_1h
-                WHERE ts <= se.timestamp
-                ORDER BY ts DESC
+                WHERE ts_created <= se.timestamp
+                ORDER BY ts_created DESC
                 LIMIT 1
             ) f ON true
             WHERE se.event_type = 'REROUTE'
