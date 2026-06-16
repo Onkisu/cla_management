@@ -11,7 +11,8 @@ type TrafficData = {
     id: number;
     run_time: string;
     actual_mbps: number;
-    predicted_mbps: number;
+    // predicted_mbps: number;
+    predicted_mbps: number | null;
     delay_ms: number;
     jitter_ms: number;
     packet_loss: number;
@@ -112,7 +113,8 @@ export default function ForecastDashboard() {
             setData((res.data.data || []).map((d: TrafficData) => ({
                 ...d,
                 actual_mbps: d.actual_mbps <= 0 ? null : d.actual_mbps,
-                predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
+                // predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
+                predicted_mbps: (d.predicted_mbps != null && d.predicted_mbps > 0) ? d.predicted_mbps : null,
             })));
             setSystemEvents(res.data.system_events || []);
             setLatest(res.data.latest_status || null);
@@ -453,6 +455,7 @@ export default function ForecastDashboard() {
                                             stroke="#f97316"
                                             strokeWidth={2}
                                             dot={false}
+                                            connectNulls={false}
                                             name="Forecast"
                                         />
                                         <ReferenceLine

@@ -161,7 +161,7 @@ class ForecastController extends Controller
         // 6. Merge Actual & Predicted
         // Actual sudah di-bucket 10 detik dari SQL → key langsung cocok
         $chartData         = [];
-        $lastValidPredMbps = null; // forward-fill kalau masih ada gap
+        // $lastValidPredMbps = null; // forward-fill kalau masih ada gap
 
         foreach ($actualTraffic as $actual) {
             // Parse timestamp dari SQL — sudah dalam format detik, tanpa milidetik
@@ -171,20 +171,20 @@ class ForecastController extends Controller
             $predMbps = $predictedMap[$key] ?? null;
 
             // Forward-fill: pakai nilai terakhir yang valid kalau bucket ini kosong
-            if ($predMbps === null) {
-                $predMbps = $lastValidPredMbps;
-            }
+            // if ($predMbps === null) {
+            //     $predMbps = $lastValidPredMbps;
+            // }
 
-            // Update tracker nilai valid
-            if ($predMbps !== null && $predMbps > 0) {
-                $lastValidPredMbps = $predMbps;
-            }
+            // // Update tracker nilai valid
+            // if ($predMbps !== null && $predMbps > 0) {
+            //     $lastValidPredMbps = $predMbps;
+            // }
 
             $chartData[] = [
                 'id'               => count($chartData) + 1,
                 'run_time'         => $timestamp->format('H:i:s'),
                 'actual_mbps'      => round((float)($actual->actual_mbps ?? 0), 3),
-                'predicted_mbps'   => round((float)($predMbps ?? 0), 3),
+                'predicted_mbps' => $predMbps !== null ? round((float)$predMbps, 3) : null,
                 'delay_ms'         => round($latestQoS->avg_delay_ms ?? 0, 1),
                 'jitter_ms'        => round($latestQoS->avg_jitter_ms ?? 0, 2),
                 'packet_loss'      => round($latestQoS->loss_percent ?? 0, 2),
