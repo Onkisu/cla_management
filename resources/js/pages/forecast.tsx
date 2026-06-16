@@ -332,7 +332,12 @@ export default function ForecastDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <KpiCard
                         title="Predicted Load (t+10)"
-                        value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`}
+                        // value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`}
+                        value={
+                            latest?.predicted_mbps != null && latest.predicted_mbps > 0
+                                ? `${formatNumber(latest.predicted_mbps, 3)} Mbps`
+                                : '— Mbps'
+                        }
                         sub="Traffic Forecast"
                         icon="📈"
                         status="neutral"

@@ -52,6 +52,7 @@ class ForecastController extends Controller
         // 1. Latest Predicted Load
         $latestPrediction = DB::table('forecast_1h')
             ->selectRaw('y_pred / 1000000.0 as y_pred, ts as ts')
+            ->where('ts', '>=', Carbon::now('Asia/Jakarta')->subSeconds(10))
             ->orderBy('ts', 'desc')
             ->first();
 
