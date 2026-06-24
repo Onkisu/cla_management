@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
 import axios from 'axios';
@@ -10,8 +10,7 @@ import {
 type TrafficData = {
     id: number;
     run_time: string;
-    actual_mbps: number;
-    // predicted_mbps: number;
+    actual_mbps: number | null;
     predicted_mbps: number | null;
     delay_ms: number;
     jitter_ms: number;
@@ -43,6 +42,8 @@ type ModelMetrics = {
     r_squared: number;
 };
 
+// Warna per hub — urutan index 0..5 untuk dpid 1..6
+const HUB_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
 const ThresholdAnnotation = (props: any) => {
     const { viewBox } = props;
@@ -61,24 +62,15 @@ const ThresholdAnnotation = (props: any) => {
                     <feDropShadow dx="0" dy="2" stdDeviation="3" floodOpacity="0.2"/>
                 </filter>
             </defs>
-
             <rect x={labelX} y={labelY} width="95" height="30" fill="#10b981" rx="6" filter="url(#shadow)" />
-
             <text x={labelX + 8} y={labelY + 20} fontSize="14">⚡</text>
-
-            <text x={labelX + 25} y={labelY + 12} fill="#ffffff" fontSize="9" fontWeight="600">
-                Threshold
-            </text>
-            <text x={labelX + 25} y={labelY + 23} fill="#ffffff" fontSize="10" fontWeight="700">
-                20 Mbps
-            </text>
-
+            <text x={labelX + 25} y={labelY + 12} fill="#ffffff" fontSize="9" fontWeight="600">Threshold</text>
+            <text x={labelX + 25} y={labelY + 23} fill="#ffffff" fontSize="10" fontWeight="700">20 Mbps</text>
             <defs>
                 <marker id="arrowhead-down" markerWidth="8" markerHeight="8" refX="4" refY="7" orient="auto">
                     <polygon points="0 0, 8 0, 4 8" fill="#10b981" />
                 </marker>
             </defs>
-
             <line
                 x1={arrowStartX} y1={arrowStartY}
                 x2={arrowStartX} y2={arrowEndY}
@@ -90,15 +82,23 @@ const ThresholdAnnotation = (props: any) => {
 };
 
 export default function ForecastDashboard() {
-    const [data, setData] = useState<TrafficData[]>([]);
+    // --- STATE ---
+    const [hubData, setHubData] = useState<Record<number, TrafficData[]>>({});
+    const [predictedData, setPredictedData] = useState<{ run_time: string; predicted_mbps: number | null }[]>([]);
     const [systemEvents, setSystemEvents] = useState<SystemEvent[]>([]);
     const [latest, setLatest] = useState<TrafficData | null>(null);
     const [metrics, setMetrics] = useState<SystemMetrics | null>(null);
     const [loading, setLoading] = useState(true);
     const [modelMetrics, setModelMetrics] = useState<ModelMetrics | null>(null);
-    const [timeRange, setTimeRange] = useState<string>('1h');
-    const [dpid, setDpid] = useState<number>(5);
+
+    // Sumbu X dikunci 1 jam = 360 sample @ interval 10 detik
+    const TIME_RANGE = '1h';
+    const MAX_SAMPLES = 360;
+
+    const [selectedDpids, setSelectedDpids] = useState<number[]>([5]);
+    const [showPredicted, setShowPredicted] = useState(true);
     const [logScale, setLogScale] = useState(false);
+
     const [selectedScript, setSelectedScript] = useState<'bursty' | 'bursty_2'>('bursty');
     const [scriptRunning, setScriptRunning] = useState(false);
     const [scriptLoading, setScriptLoading] = useState(false);
@@ -107,25 +107,70 @@ export default function ForecastDashboard() {
     const [forecastLoading, setForecastLoading] = useState(false);
     const [forecastError, setForecastError] = useState<string | null>(null);
 
+    // --- FETCH DATA ---
     const fetchData = async () => {
+        if (selectedDpids.length === 0) return;
         try {
-            const res = await axios.get('/api/forecast/data', { params: { range: timeRange, dpid: dpid } });
-            setData((res.data.data || []).map((d: TrafficData) => ({
-                ...d,
-                actual_mbps: d.actual_mbps <= 0 ? null : d.actual_mbps,
-                // predicted_mbps: d.predicted_mbps <= 0 ? 0.001 : d.predicted_mbps,
-                predicted_mbps: (d.predicted_mbps != null && d.predicted_mbps > 0) ? d.predicted_mbps : null,
-            })));
-            setSystemEvents(res.data.system_events || []);
-            setLatest(res.data.latest_status || null);
-            setMetrics(res.data.system_metrics || null);
-            setModelMetrics(res.data.model_metrics || null);
+            // Fetch actual traffic parallel untuk setiap hub yang dipilih
+            const hubResults = await Promise.all(
+                selectedDpids.map(id =>
+                    axios.get('/api/forecast/data', { params: { range: TIME_RANGE, dpid: id } })
+                )
+            );
+
+            const newHubData: Record<number, TrafficData[]> = {};
+            hubResults.forEach((res, i) => {
+                const dpid = selectedDpids[i];
+                const raw = (res.data.data || []).map((d: TrafficData) => ({
+                    ...d,
+                    actual_mbps: d.actual_mbps != null && d.actual_mbps > 0 ? d.actual_mbps : null,
+                    predicted_mbps: null, // predicted diambil terpisah dari endpoint dpid 5
+                }));
+                newHubData[dpid] = raw.slice(-MAX_SAMPLES);
+            });
+            setHubData(newHubData);
+
+            // Predicted hanya dari hasil fetch pertama (forecast_1h tidak terikat dpid tampilan)
+            const firstRes = hubResults[0]?.data;
+            if (firstRes) {
+                const pred = (firstRes.data || []).map((d: any) => ({
+                    run_time: d.run_time,
+                    predicted_mbps: d.predicted_mbps != null && d.predicted_mbps > 0
+                        ? d.predicted_mbps
+                        : null,
+                })).slice(-MAX_SAMPLES);
+                setPredictedData(pred);
+
+                setSystemEvents(firstRes.system_events || []);
+                setLatest(firstRes.latest_status || null);
+                setMetrics(firstRes.system_metrics || null);
+                setModelMetrics(firstRes.model_metrics || null);
+            }
             setLoading(false);
         } catch (error) {
-            console.error("Error fetching forecast data", error);
+            console.error('Error fetching forecast data', error);
             setLoading(false);
         }
     };
+
+    // --- MERGE DATA UNTUK CHART ---
+    // Gabungkan semua hub ke satu timeline berdasarkan run_time
+    const mergedData = useMemo(() => {
+        const allTimes = [...new Set(
+            Object.values(hubData).flatMap(rows => rows.map(r => r.run_time))
+        )].sort();
+
+        return allTimes.slice(-MAX_SAMPLES).map(t => {
+            const row: Record<string, any> = { run_time: t };
+            selectedDpids.forEach(id => {
+                const found = hubData[id]?.find(r => r.run_time === t);
+                row[`hub_${id}`] = found?.actual_mbps ?? null;
+            });
+            const pred = predictedData.find(p => p.run_time === t);
+            row['predicted'] = pred?.predicted_mbps ?? null;
+            return row;
+        });
+    }, [hubData, predictedData, selectedDpids]);
 
     const handleScriptToggle = async () => {
         setScriptLoading(true);
@@ -167,24 +212,20 @@ export default function ForecastDashboard() {
         fetchData();
         const interval = setInterval(fetchData, 5000);
         return () => clearInterval(interval);
-    }, [timeRange, dpid]);
+    }, [selectedDpids]); // re-fetch saat pilihan hub berubah
 
     useEffect(() => {
         const checkScriptStatus = async () => {
             try {
                 const res = await axios.get('/api/forecast/script/status');
                 setScriptRunning(res.data.running);
-            } catch {
-                // biarkan default false
-            }
+            } catch { /* biarkan default false */ }
         };
         const checkForecastStatus = async () => {
             try {
                 const res = await axios.get('/api/forecast/ai/status');
                 setForecastRunning(res.data.running);
-            } catch {
-                // biarkan default false
-            }
+            } catch { /* biarkan default false */ }
         };
         checkScriptStatus();
         checkForecastStatus();
@@ -196,19 +237,13 @@ export default function ForecastDashboard() {
         return 'text-green-600 bg-green-100 border-green-200';
     };
 
-    const formatNumber = (num: number | undefined, decimals: number = 2) => {
-        return num !== undefined && num !== null ? Number(num).toFixed(decimals) : '0';
-    };
+    const formatNumber = (num: number | undefined, decimals: number = 2) =>
+        num !== undefined && num !== null ? Number(num).toFixed(decimals) : '0';
 
-    const formatTime = (timestamp: string) => {
-        const date = new Date(timestamp);
-        return date.toLocaleTimeString('id-ID', {
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit',
-            hour12: false
+    const formatTime = (timestamp: string) =>
+        new Date(timestamp).toLocaleTimeString('id-ID', {
+            hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
         });
-    };
 
     const getEventStyle = (eventType: string) => {
         if (eventType === 'REROUTE') return { icon: '⚡', color: 'text-red-600', bg: 'bg-red-50' };
@@ -225,21 +260,14 @@ export default function ForecastDashboard() {
                 {/* --- HEADER --- */}
                 <div className="flex flex-col md:flex-row justify-between items-center gap-4">
                     <div>
-                        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">
-                            SDN VoIP Controller
-                        </h1>
-                        <p className="text-sm text-gray-500">
-                            Closed-Loop Automation • XGBoost Engine
-                        </p>
+                        <h1 className="text-2xl font-bold text-gray-800 dark:text-white">SDN VoIP Controller</h1>
+                        <p className="text-sm text-gray-500">Closed-Loop Automation • XGBoost Engine</p>
                     </div>
 
                     <div className="flex items-center gap-3 flex-wrap justify-end">
                         {/* Script Injector */}
                         <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl px-3 py-2 shadow-sm">
-                            {/* Status dot */}
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${scriptRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-300 dark:bg-neutral-600'}`}></span>
-
-                            {/* Script selector */}
                             <select
                                 value={selectedScript}
                                 onChange={(e) => setSelectedScript(e.target.value as 'bursty' | 'bursty_2')}
@@ -249,8 +277,6 @@ export default function ForecastDashboard() {
                                 <option value="bursty">congestion type 1</option>
                                 <option value="bursty_2">congestion type 2</option>
                             </select>
-
-                            {/* Run / Stop button */}
                             <button
                                 onClick={handleScriptToggle}
                                 disabled={scriptLoading}
@@ -262,29 +288,20 @@ export default function ForecastDashboard() {
                             >
                                 {scriptLoading ? (
                                     <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                ) : scriptRunning ? (
-                                    <>⏹ Stop</>
-                                ) : (
-                                    <>▶ Run</>
-                                )}
+                                ) : scriptRunning ? <>⏹ Stop</> : <>▶ Run</>}
                             </button>
                         </div>
 
-                        {/* Error toast */}
                         {scriptError && (
                             <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg max-w-xs truncate">
                                 ⚠️ {scriptError}
                             </div>
                         )}
 
-                        {/* Forecast Script */}
+                        {/* Forecast Engine */}
                         <div className="flex items-center gap-2 bg-white dark:bg-neutral-800 border border-gray-200 dark:border-neutral-700 rounded-xl px-3 py-2 shadow-sm">
-                            {/* Status dot */}
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${forecastRunning ? 'bg-blue-500 animate-pulse' : 'bg-gray-300 dark:bg-neutral-600'}`}></span>
-
                             <span className="text-xs text-gray-600 dark:text-gray-300 font-medium">forecast engine</span>
-
-                            {/* Run / Stop button */}
                             <button
                                 onClick={handleForecastToggle}
                                 disabled={forecastLoading}
@@ -296,15 +313,10 @@ export default function ForecastDashboard() {
                             >
                                 {forecastLoading ? (
                                     <span className="inline-block w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                                ) : forecastRunning ? (
-                                    <>⏹ Stop</>
-                                ) : (
-                                    <>▶ Run</>
-                                )}
+                                ) : forecastRunning ? <>⏹ Stop</> : <>▶ Run</>}
                             </button>
                         </div>
 
-                        {/* Forecast Error toast */}
                         {forecastError && (
                             <div className="text-xs text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg max-w-xs truncate">
                                 ⚠️ {forecastError}
@@ -332,7 +344,6 @@ export default function ForecastDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <KpiCard
                         title="Predicted Load (t+10)"
-                        // value={`${formatNumber(latest?.predicted_mbps, 3)} Mbps`}
                         value={
                             latest?.predicted_mbps != null && latest.predicted_mbps > 0
                                 ? `${formatNumber(latest.predicted_mbps, 3)} Mbps`
@@ -370,70 +381,89 @@ export default function ForecastDashboard() {
 
                     {/* --- LEFT: TRAFFIC CHART (2/3) --- */}
                     <div className="lg:col-span-2 bg-white dark:bg-neutral-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-neutral-700 h-[500px] flex flex-col">
-                        <div className="flex justify-between items-center mb-6">
-                            <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Traffic Forecasting</h3>
 
-                            <select
-                                value={dpid}
-                                onChange={(e) => setDpid(Number(e.target.value))}
-                                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
-                            >
-                                <option value={1}>DPID 1</option>
-                                <option value={2}>DPID 2</option>
-                                <option value={3}>DPID 3</option>
-                                <option value={4}>DPID 4</option>
-                                <option value={5}>DPID 5</option>
-                                <option value={6}>DPID 6</option>
-                            </select>
+                        {/* Chart Header */}
+                        <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Traffic Forecasting</h3>
+                                <span className="text-[10px] text-gray-400">Window: 1 jam · {MAX_SAMPLES} sample · interval 10s</span>
+                            </div>
 
-                            <select
-                                value={timeRange}
-                                onChange={(e) => setTimeRange(e.target.value)}
-                                className="text-xs border border-gray-200 dark:border-neutral-600 rounded-lg px-2 py-1 bg-white dark:bg-neutral-700 text-gray-700 dark:text-white"
-                            >
-                                <option value="10s">Last 10 sec</option>
-                                <option value="1m">Last 1 min</option>
-                                <option value="5m">Last 5 min</option>
-                                <option value="15m">Last 15 min</option>
-                                <option value="30m">Last 30 min</option>
-                                <option value="1h">Last 1 hour</option>
-                            </select>
+                            <div className="flex flex-wrap items-center gap-3">
+                                {/* Hub checkboxes */}
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs text-gray-500 font-medium">Hub:</span>
+                                    {[1, 2, 3, 4, 5, 6].map((id, i) => (
+                                        <label key={id} className="flex items-center gap-1 cursor-pointer select-none">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedDpids.includes(id)}
+                                                onChange={(e) => {
+                                                    setSelectedDpids(prev =>
+                                                        e.target.checked
+                                                            ? [...prev, id]
+                                                            : prev.filter(d => d !== id)
+                                                    );
+                                                }}
+                                                style={{ accentColor: HUB_COLORS[i] }}
+                                            />
+                                            <span className="text-xs font-medium" style={{ color: HUB_COLORS[i] }}>
+                                                {id}
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
 
-                            <button
-                                onClick={() => setLogScale(prev => !prev)}
-                                className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
-                                    logScale
-                                        ? 'bg-blue-600 text-white border-blue-600'
-                                        : 'bg-white dark:bg-neutral-700 text-gray-700 dark:text-white border-gray-200 dark:border-neutral-600'
-                                }`}
-                            >
-                                {logScale ? 'Log' : 'Linear'}
-                            </button>
+                                {/* Predicted toggle */}
+                                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        checked={showPredicted}
+                                        onChange={(e) => setShowPredicted(e.target.checked)}
+                                        style={{ accentColor: '#f97316' }}
+                                    />
+                                    <span className="text-xs font-medium text-orange-500">Predicted</span>
+                                </label>
 
-                            <div className="flex gap-4 text-xs">
-                                <span className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div> Actual</span>
-                                <span className="flex items-center gap-2"><div className="w-2 h-2 border border-orange-500 rounded-full"></div> Predicted</span>
+                                {/* Log/Linear toggle */}
+                                <button
+                                    onClick={() => setLogScale(prev => !prev)}
+                                    className={`text-xs border rounded-lg px-2 py-1 transition-colors ${
+                                        logScale
+                                            ? 'bg-blue-600 text-white border-blue-600'
+                                            : 'bg-white dark:bg-neutral-700 text-gray-700 dark:text-white border-gray-200 dark:border-neutral-600'
+                                    }`}
+                                >
+                                    {logScale ? 'Log' : 'Linear'}
+                                </button>
                             </div>
                         </div>
 
+                        {/* Chart Body */}
                         <div className="flex-1 w-full min-h-0">
-                            {data.length > 0 ? (
+                            {mergedData.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={data}>
+                                    <AreaChart data={mergedData}>
                                         <defs>
-                                            <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.2}/>
-                                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                            </linearGradient>
+                                            {selectedDpids.map((id, i) => (
+                                                <linearGradient key={id} id={`colorHub${id}`} x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor={HUB_COLORS[i % HUB_COLORS.length]} stopOpacity={0.18} />
+                                                    <stop offset="95%" stopColor={HUB_COLORS[i % HUB_COLORS.length]} stopOpacity={0} />
+                                                </linearGradient>
+                                            ))}
                                         </defs>
+
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+
                                         <XAxis
                                             dataKey="run_time"
                                             stroke="#9ca3af"
                                             fontSize={11}
                                             tick={{ dy: 10 }}
-                                            interval="preserveStartEnd"
+                                            // ~6 label untuk 360 sample
+                                            interval={Math.floor(MAX_SAMPLES / 6)}
                                         />
+
                                         <YAxis
                                             stroke="#9ca3af"
                                             fontSize={11}
@@ -442,27 +472,44 @@ export default function ForecastDashboard() {
                                             tickFormatter={(v) => Number(v).toFixed(1)}
                                             label={{ value: 'Mbps', angle: -90, position: 'insideLeft', style: { fontSize: 11 } }}
                                         />
+
                                         <Tooltip
                                             contentStyle={{ backgroundColor: '#1f2937', color: '#fff', fontSize: '12px', borderRadius: '8px' }}
-                                            formatter={(value: any) => [`${Number(value).toFixed(2)} Mbps`, '']}
+                                            formatter={(value: any, name: string) => [
+                                                value != null ? `${Number(value).toFixed(2)} Mbps` : '—',
+                                                name
+                                            ]}
                                         />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="actual_mbps"
-                                            stroke="#3b82f6"
-                                            fill="url(#colorActual)"
-                                            strokeWidth={2}
-                                            name="Actual"
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="predicted_mbps"
-                                            stroke="#f97316"
-                                            strokeWidth={2}
-                                            dot={false}
-                                            connectNulls={false}
-                                            name="Forecast"
-                                        />
+
+                                        {/* Area per hub (actual traffic) */}
+                                        {selectedDpids.map((id, i) => (
+                                            <Area
+                                                key={`hub_${id}`}
+                                                type="monotone"
+                                                dataKey={`hub_${id}`}
+                                                stroke={HUB_COLORS[i % HUB_COLORS.length]}
+                                                fill={`url(#colorHub${id})`}
+                                                strokeWidth={2}
+                                                dot={false}
+                                                connectNulls={false}
+                                                name={`Hub ${id}`}
+                                            />
+                                        ))}
+
+                                        {/* Predicted line — toggle via checkbox, tanpa dpid */}
+                                        {showPredicted && (
+                                            <Line
+                                                type="monotone"
+                                                dataKey="predicted"
+                                                stroke="#f97316"
+                                                strokeWidth={2}
+                                                dot={false}
+                                                connectNulls={false}
+                                                name="Predicted"
+                                                strokeDasharray="5 3"
+                                            />
+                                        )}
+
                                         <ReferenceLine
                                             y={20}
                                             stroke="#10b981"
@@ -541,9 +588,7 @@ export default function ForecastDashboard() {
                                         <div className="text-xs text-slate-400 mb-1">Time to Reroute</div>
                                         <div className="text-lg font-mono font-bold text-orange-400">
                                             {metrics?.mttr && metrics.mttr > 0 ? (
-                                                <>
-                                                    {formatNumber(metrics.mttr, 0)} <span className="text-xs text-slate-500">ms</span>
-                                                </>
+                                                <>{formatNumber(metrics.mttr, 0)} <span className="text-xs text-slate-500">ms</span></>
                                             ) : (
                                                 <span className="text-gray-600 text-sm">No Incidents</span>
                                             )}
@@ -567,18 +612,18 @@ export default function ForecastDashboard() {
                                         {formatNumber(modelMetrics?.rmse, 2)} Mbps
                                     </span>
                                 </div>
-                                    <div className="pt-2 flex justify-between items-center">
-                                        <span className="text-xs text-slate-400">MAE</span>
-                                        <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-xs font-bold border border-cyan-500/30">
-                                            {formatNumber(modelMetrics?.mae, 2)} Mbps
-                                        </span>
-                                    </div>
-                                    <div className="pt-2 flex justify-between items-center">
-                                        <span className="text-xs text-slate-400">R²</span>
-                                        <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded text-xs font-bold border border-green-500/30">
-                                            {formatNumber(modelMetrics?.r_squared, 4)}
-                                        </span>
-                                    </div>
+                                <div className="pt-2 flex justify-between items-center">
+                                    <span className="text-xs text-slate-400">MAE</span>
+                                    <span className="bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded text-xs font-bold border border-cyan-500/30">
+                                        {formatNumber(modelMetrics?.mae, 2)} Mbps
+                                    </span>
+                                </div>
+                                <div className="pt-2 flex justify-between items-center">
+                                    <span className="text-xs text-slate-400">R²</span>
+                                    <span className="bg-green-500/20 text-green-300 px-2 py-0.5 rounded text-xs font-bold border border-green-500/30">
+                                        {formatNumber(modelMetrics?.r_squared, 4)}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
