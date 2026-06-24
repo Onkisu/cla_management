@@ -445,12 +445,12 @@ export default function ForecastDashboard() {
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={mergedData}>
                                         <defs>
-                                            {selectedDpids.map((id, i) => (
-                                                <linearGradient key={id} id={`colorHub${id}`} x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor={HUB_COLORS[i % HUB_COLORS.length]} stopOpacity={0.18} />
-                                                    <stop offset="95%" stopColor={HUB_COLORS[i % HUB_COLORS.length]} stopOpacity={0} />
-                                                </linearGradient>
-                                            ))}
+                                        {selectedDpids.map((id) => (
+    <linearGradient key={id} id={`colorHub${id}`} x1="0" y1="0" x2="0" y2="1">
+        <stop offset="5%" stopColor={HUB_COLORS[(id - 1) % HUB_COLORS.length]} stopOpacity={0.18} />
+        <stop offset="95%" stopColor={HUB_COLORS[(id - 1) % HUB_COLORS.length]} stopOpacity={0} />
+    </linearGradient>
+))}
                                         </defs>
 
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
@@ -482,19 +482,19 @@ export default function ForecastDashboard() {
                                         />
 
                                         {/* Area per hub (actual traffic) */}
-                                        {selectedDpids.map((id, i) => (
-                                            <Area
-                                                key={`hub_${id}`}
-                                                type="monotone"
-                                                dataKey={`hub_${id}`}
-                                                stroke={HUB_COLORS[i % HUB_COLORS.length]}
-                                                fill={`url(#colorHub${id})`}
-                                                strokeWidth={2}
-                                                dot={false}
-                                                connectNulls={false}
-                                                name={`Hub ${id}`}
-                                            />
-                                        ))}
+                                        {selectedDpids.map((id) => (
+    <Area
+        key={`hub_${id}`}
+        type="monotone"
+        dataKey={`hub_${id}`}
+        stroke={HUB_COLORS[(id - 1) % HUB_COLORS.length]} // <--- Berubah di sini
+        fill={`url(#colorHub${id})`}
+        strokeWidth={2}
+        dot={false}
+        connectNulls={false}
+        name={`Hub ${id}`}
+    />
+))}
 
                                         {/* Predicted line — toggle via checkbox, tanpa dpid */}
                                         {showPredicted && (
